@@ -10,6 +10,15 @@ INSERT OR REPLACE INTO app_settings (key, value) VALUES
   ('invoice_due_timezone', 'America/Denver'),
   ('invoice_warn_window_hours', '24');  -- show "approaching" within 24h
 
--- Ensure invoices have period bounds
-ALTER TABLE invoices ADD COLUMN period_start TEXT; -- ISO date (YYYY-MM-DD)
-ALTER TABLE invoices ADD COLUMN period_end TEXT;   -- ISO date (YYYY-MM-DD)
+-- Ensure invoices have period bounds using conditional statements
+SELECT CASE 
+  WHEN NOT EXISTS(SELECT 1 FROM pragma_table_info('invoices') WHERE name='period_start')
+  THEN 'ALTER TABLE invoices ADD COLUMN period_start TEXT;'
+END AS sql_command
+WHERE sql_command IS NOT NULL;
+
+SELECT CASE 
+  WHEN NOT EXISTS(SELECT 1 FROM pragma_table_info('invoices') WHERE name='period_end')
+  THEN 'ALTER TABLE invoices ADD COLUMN period_end TEXT;'
+END AS sql_command
+WHERE sql_command IS NOT NULL;

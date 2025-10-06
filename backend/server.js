@@ -18,11 +18,26 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Security middleware
-app.use(helmet());
-const allowed = (process.env.CORS_ORIGINS || 'http://localhost:5173').split(',');
-app.use(cors({ 
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      connectSrc: ["'self'", "http://localhost:3001", "http://localhost:5173"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "blob:"],
+      fontSrc: ["'self'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false
+}));
+
+const allowed = ['http://localhost:5173', 'http://localhost:3001'];
+app.use(cors({
   origin: allowed,
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 // Rate limiting
@@ -52,13 +67,44 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+// Add this before error handling middleware
+app.use((req, res, next) => {
+  if (req.path.includes('/.well-known/')) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  next();
+});
+
+// Add this after your routes but before error handling
+app.use('*', (req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
 // Error handling
 app.use((err, req, res, next) => {
   console.error('Server error:', err);
   res.status(500).json({ error: 'Internal server error' });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📊 API available at http://localhost:${PORT}/api`);
+});
+
+// Handle server shutdown
+process.on('SIGTERM', () => {
+  console.info('SIGTERM signal received. Closing server...');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
+
+// Handle uncaught errors
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  server.close(() => {
+    console.log('Server closed due to error');
+    process.exit(1);
+  });
 });

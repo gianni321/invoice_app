@@ -8,7 +8,7 @@ const router = express.Router();
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const entries = await db.query(
-      `SELECT e.*, u.name as user_name, u.rate 
+      `SELECT e.*, u.name as user_name, u.rate, e.user_id as userId 
        FROM entries e 
        JOIN users u ON e.user_id = u.id 
        WHERE e.user_id = ? 
@@ -41,7 +41,14 @@ router.post('/', authenticateToken, async (req, res) => {
       [req.user.id, hours, task, notes || '', date]
     );
 
-    const entry = await db.get('SELECT * FROM entries WHERE id = ?', [result.id]);
+    // Get complete entry with user info
+    const entry = await db.get(
+      `SELECT e.*, u.name as user_name, u.rate, e.user_id as userId
+       FROM entries e 
+       JOIN users u ON e.user_id = u.id 
+       WHERE e.id = ?`, 
+      [result.id]
+    );
     
     await db.run(
       'INSERT INTO audit_log (user_id, action, details) VALUES (?, ?, ?)',
@@ -82,7 +89,13 @@ router.put('/:id', authenticateToken, async (req, res) => {
       [hours, task, notes || '', date, id]
     );
 
-    const updated = await db.get('SELECT * FROM entries WHERE id = ?', [id]);
+    const updated = await db.get(
+      `SELECT e.*, u.name as user_name, u.rate, e.user_id as userId 
+       FROM entries e 
+       JOIN users u ON e.user_id = u.id 
+       WHERE e.id = ?`, 
+      [id]
+    );
     res.json(updated);
   } catch (error) {
     console.error('Error updating entry:', error);
@@ -244,13 +257,11 @@ function parseLine(line) {
 
   // Try free-form with date prefix
   const dateMatch = line.match(/^(\d{4}-\d{2}-\d{2})\s*[|,]\s*(.+)$/);
-  if (dateMatch) {
-    const [, date, rest] = dateMatch;
-    const parsed = parseLine(rest); // Recursively parse the rest
-    if (parsed) {
-      parsed.date = date;
-      return parsed;
-    }
+  const [, date, rest] = dateMatch;
+  const parsed = parseLine(rest); // Recursively parse the rest
+  if (parsed) {
+    parsed.date = date;
+    return parsed;
   }
 
   return null;

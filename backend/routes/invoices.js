@@ -114,8 +114,11 @@ router.post('/submit', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'No open entries to invoice' });
     }
 
-    // Get user rate
-    const user = await db.get('SELECT rate FROM users WHERE id = ?', [req.user.id]);
+    // Get user rate and info
+    const user = await db.get('SELECT * FROM users WHERE id = ?', [req.user.id]);
+    if (!user) {
+      return res.status(400).json({ error: 'User not found' });
+    }
     
     // Calculate total
     const total = entries.reduce((sum, e) => sum + (e.hours * user.rate), 0);
@@ -144,9 +147,9 @@ router.post('/submit', authenticateToken, async (req, res) => {
     // Create invoice with period bounds
     const result = await db.run(
       `INSERT INTO invoices 
-       (user_id, total, status, period_start, period_end) 
-       VALUES (?, ?, ?, ?, ?)`,
-      [req.user.id, total, 'pending', period_start, period_end]
+       (user_id, total, status, period_start, period_end, created_at) 
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [req.user.id, total, 'pending', period_start, period_end, new Date().toISOString()]
     );
 
     // Update entries with invoice_id
@@ -162,7 +165,20 @@ router.post('/submit', authenticateToken, async (req, res) => {
       [req.user.id, 'INVOICE_SUBMITTED', `Invoice ${result.id} submitted`]
     );
 
-    const invoice = await db.get('SELECT * FROM invoices WHERE id = ?', [result.id]);
+    // Get complete invoice with all fields
+    const invoice = await db.get(`
+      SELECT i.*, u.name as user_name 
+      FROM invoices i 
+      JOIN users u ON i.user_id = u.id 
+      WHERE i.id = ?`, 
+      [result.id]
+    );
+    
+    if (!invoice) {
+      throw new Error('Failed to retrieve created invoice');
+    }
+
+    // Add entries to response
     invoice.entries = entries;
 
     // Send email notification to admins
@@ -198,7 +214,7 @@ router.post('/submit', authenticateToken, async (req, res) => {
 });
 
 // Approve invoice (admin only)
-router.put('/:id/approve', authenticateToken, requireAdmin, async (req, res) => {
+router.post('/:id/approve', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -221,7 +237,7 @@ router.put('/:id/approve', authenticateToken, requireAdmin, async (req, res) => 
 });
 
 // Mark as paid (admin only)
-router.put('/:id/paid', authenticateToken, requireAdmin, async (req, res) => {
+router.post('/:id/paid', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const now = new Date().toISOString();

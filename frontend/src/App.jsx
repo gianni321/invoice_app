@@ -6,7 +6,7 @@ import { api, getAuthHeaders, setAuthToken, clearAuthToken } from './config';
 const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
 function InvoiceModal({ invoice, entries, onClose, onDownload }) {
-  const invEntries = entries.filter(e => invoice.entryIds.includes(e.id));
+  const invEntries = invoice.entries || [];  // Changed from entries.filter(e => invoice.entryIds.includes(e.id))
   
   const groupedByDate = {};
   invEntries.forEach(e => {
@@ -103,7 +103,7 @@ export default function App() {
   const [viewInvoice, setViewInvoice] = useState(null);
   const [showBatchEntry, setShowBatchEntry] = useState(false);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const [entriesResponse, invoicesResponse] = await Promise.all([
         fetch(api.entries.list(), { headers: getAuthHeaders() }),
@@ -123,7 +123,7 @@ export default function App() {
       console.error('Error fetching data:', error);
       alert('Failed to load data');
     }
-  };
+  }, []);
 
   const login = useCallback(async () => {
     try {
@@ -152,7 +152,7 @@ export default function App() {
       console.error('Login error:', error);
       setErr('Invalid PIN');
     }
-  }, [pin]);
+  }, [pin, fetchData]);
 
   const logout = () => {
     setUser(null);
@@ -161,9 +161,16 @@ export default function App() {
     setErr('');
   };
 
-  const addEntry = async () => {
+  const addEntry = useCallback(async () => {
     if (!form.hours || !form.task || !form.date) return;
     try {
+      console.log('Submitting entry:', {
+        hours: Number(form.hours),
+        task: form.task,
+        notes: form.notes,
+        date: form.date
+      });
+      
       const response = await fetch(api.entries.create(), {
         method: 'POST',
         headers: getAuthHeaders(),
@@ -171,17 +178,22 @@ export default function App() {
           hours: Number(form.hours),
           task: form.task,
           notes: form.notes,
-          date: form.date  // Changed from new Date(form.date).toISOString()
+          date: form.date
         })
       });
 
+      console.log('Response status:', response.status);
+      
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('Error response:', errorData);
         throw new Error(errorData.error || 'Failed to create entry');
       }
 
       const newEntry = await response.json();
-      setEntries([newEntry, ...entries]);
+      console.log('Created entry:', newEntry);
+      
+      setEntries(entries => [newEntry, ...entries]);
       setForm({ 
         hours: '', 
         task: '', 
@@ -192,9 +204,9 @@ export default function App() {
       console.error('Error adding entry:', error);
       alert(error.message || 'Failed to add entry');
     }
-  };
+  }, [form]);
 
-  const delEntry = async id => {
+  const delEntry = useCallback(async id => {
     const entry = entries.find(e => e.id === id);
     if (entry?.invoiceId) return alert('Cannot delete invoiced entry');
     if (!confirm('Delete?')) return;
@@ -209,15 +221,15 @@ export default function App() {
         throw new Error('Failed to delete entry');
       }
 
-      setEntries(entries.filter(e => e.id !== id));
+      setEntries(entries => entries.filter(e => e.id !== id));
     } catch (error) {
       console.error('Error deleting entry:', error);
       alert('Failed to delete entry');
     }
-  };
+  }, [entries]);
 
-  const saveEntry = async () => {
-    if (edit.invoiceId) return alert('Cannot edit invoiced entry');
+  const saveEntry = useCallback(async () => {
+    if (!edit || edit.invoiceId) return alert('Cannot edit invoiced entry');
     
     try {
       const response = await fetch(api.entries.update(edit.id), {
@@ -236,16 +248,16 @@ export default function App() {
       }
 
       const updatedEntry = await response.json();
-      setEntries(entries.map(e => e.id === edit.id ? updatedEntry : e));
+      setEntries(entries => entries.map(e => e.id === edit.id ? updatedEntry : e));
       setEdit(null);
     } catch (error) {
       console.error('Error updating entry:', error);
       alert('Failed to update entry');
     }
-  };
+  }, [edit]);
 
-  const submit = async () => {
-    const openEntries = entries.filter(e => e.userId === user.id && !e.invoiceId);
+  const submit = useCallback(async () => {
+    const openEntries = entries.filter(e => e.userId === user?.id && !e.invoiceId);
     if (!openEntries.length) return alert('No open entries');
 
     try {
@@ -259,25 +271,23 @@ export default function App() {
       }
 
       const invoice = await response.json();
-      const updatedEntries = entries.map(e => 
+      setEntries(entries => entries.map(e => 
         openEntries.find(oe => oe.id === e.id) 
           ? {...e, invoiceId: invoice.id} 
           : e
-      );
-      
-      setEntries(updatedEntries);
-      setInvoices([invoice, ...invoices]);
+      ));
+      setInvoices(invoices => [invoice, ...invoices]);
       alert('Invoice submitted successfully!');
     } catch (error) {
       console.error('Error submitting invoice:', error);
       alert('Failed to submit invoice');
     }
-  };
+  }, [entries, user]);
 
-  const approve = async id => {
+  const approve = useCallback(async id => {
     try {
       const response = await fetch(api.invoices.approve(id), {
-        method: 'PUT',
+        method: 'POST',
         headers: getAuthHeaders()
       });
 
@@ -286,17 +296,17 @@ export default function App() {
       }
 
       const updatedInvoice = await response.json();
-      setInvoices(invoices.map(i => i.id === id ? updatedInvoice : i));
+      setInvoices(invoices => invoices.map(i => i.id === id ? updatedInvoice : i));
     } catch (error) {
       console.error('Error approving invoice:', error);
       alert('Failed to approve invoice');
     }
-  };
+  }, []);
 
-  const markPaid = async id => {
+  const markPaid = useCallback(async id => {
     try {
       const response = await fetch(api.invoices.markPaid(id), {
-        method: 'PUT',
+        method: 'POST',
         headers: getAuthHeaders()
       });
 
@@ -305,15 +315,15 @@ export default function App() {
       }
 
       const updatedInvoice = await response.json();
-      setInvoices(invoices.map(i => i.id === id ? updatedInvoice : i));
+      setInvoices(invoices => invoices.map(i => i.id === id ? updatedInvoice : i));
     } catch (error) {
       console.error('Error marking invoice as paid:', error);
       alert('Failed to mark invoice as paid');
     }
-  };
+  }, []);
 
   const download = inv => {
-    const invEntries = entries.filter(e => inv.entryIds.includes(e.id));
+    const invEntries = inv.entries || [];  // Changed from entries.filter(e => inv.entryIds.includes(e.id))
     const csv = [
       `Invoice for ${inv.userName}`,
       `Date,Hours,Task,Notes,Rate,Amount`,
@@ -330,7 +340,7 @@ export default function App() {
   };
 
   const downloadPDF = inv => {
-    const invEntries = entries.filter(e => inv.entryIds.includes(e.id));
+    const invEntries = inv.entries || [];  // Changed from entries.filter(e => inv.entryIds.includes(e.id))
     
     const groupedByDate = {};
     invEntries.forEach(e => {
@@ -436,6 +446,12 @@ export default function App() {
     `);
     printWindow.document.close();
   };
+
+  useEffect(() => {
+    if (user) {
+      fetchData();
+    }
+  }, [user, fetchData]);
 
   const myEntries = useMemo(() => entries.filter(e => e.userId === user?.id), [entries, user]);
   const openEntries = useMemo(() => myEntries.filter(e => !e.invoiceId), [myEntries]);
