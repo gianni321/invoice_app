@@ -1,21 +1,22 @@
-# Hot-reload / debug-friendly image
-FROM node:20-alpine
+# Debian-based = glibc (avoids musl issues with sqlite3)
+FROM node:20-bookworm-slim
 
-# tini = clean signal handling (Ctrl+C etc.)
-RUN apk add --no-cache tini
+# Clean shutdowns; build tools for node-gyp
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      tini python3 build-essential sqlite3 libsqlite3-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install deps first (better layer caching)
+# Install deps (dev included); inspector + nodemon
 COPY package*.json ./
 RUN npm install --include=dev && npm i -g nodemon
 
-# Bring in the rest (dev uses bind mounts, but this helps first boot)
+# Bring in source (dev still bind-mounts, this just speeds first boot)
 COPY . .
 
 ENV NODE_ENV=development
 EXPOSE 3000 9229
 
-ENTRYPOINT ["/sbin/tini","--"]
-# nodemon watches for changes; inspector on 9229
+ENTRYPOINT ["/usr/bin/tini","--"]
 CMD ["nodemon","--inspect=0.0.0.0:9229","--watch","." ,"--ext","js,json,env","server.js"]
