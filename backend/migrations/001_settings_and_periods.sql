@@ -10,6 +10,7 @@ INSERT OR REPLACE INTO app_settings (key, value) VALUES
   ('invoice_due_timezone', 'America/Denver'),
   ('invoice_warn_window_hours', '24');  -- show "approaching" within 24h
 
--- Add period columns to invoices table (SQLite ignores if column exists)
+-- Add period columns to invoices table
+-- These may already exist, migration runner will skip errors
 ALTER TABLE invoices ADD COLUMN period_start TEXT;
 ALTER TABLE invoices ADD COLUMN period_end TEXT;

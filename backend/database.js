@@ -25,8 +25,17 @@ class Database {
       
       for (const migration of migrations) {
         const sql = await fs.readFile(path.join(migrationsDir, migration), 'utf8');
-        await this.run(sql);
-        console.log(`Ran migration: ${migration}`);
+        try {
+          await this.run(sql);
+          console.log(`Ran migration: ${migration}`);
+        } catch (migrationErr) {
+          // Ignore "duplicate column" errors as columns may already exist
+          if (migrationErr.message && migrationErr.message.includes('duplicate column')) {
+            console.log(`Skipped migration ${migration}: columns already exist`);
+          } else {
+            throw migrationErr;
+          }
+        }
       }
     } catch (err) {
       console.error('Migration error:', err);

@@ -70,14 +70,14 @@ router.get('/', authenticateToken, async (req, res) => {
     
     if (req.user.role === 'admin') {
       invoices = await db.query(
-        `SELECT i.*, u.name as user_name 
+        `SELECT i.*, u.name as user_name, i.user_id as userId
          FROM invoices i 
          JOIN users u ON i.user_id = u.id 
          ORDER BY i.created_at DESC`
       );
     } else {
       invoices = await db.query(
-        `SELECT i.*, u.name as user_name 
+        `SELECT i.*, u.name as user_name, i.user_id as userId
          FROM invoices i 
          JOIN users u ON i.user_id = u.id 
          WHERE i.user_id = ? 
@@ -167,7 +167,7 @@ router.post('/submit', authenticateToken, async (req, res) => {
 
     // Get complete invoice with all fields
     const invoice = await db.get(`
-      SELECT i.*, u.name as user_name 
+      SELECT i.*, u.name as user_name, i.user_id as userId
       FROM invoices i 
       JOIN users u ON i.user_id = u.id 
       WHERE i.id = ?`, 
@@ -253,7 +253,7 @@ router.post('/:id/paid', authenticateToken, requireAdmin, async (req, res) => {
     );
 
     const invoice = await db.get(`
-      SELECT i.*, u.name as user_name, u.email as user_email 
+      SELECT i.*, u.name as user_name, u.email as user_email, i.user_id as userId
       FROM invoices i 
       JOIN users u ON i.user_id = u.id 
       WHERE i.id = ?`, 
