@@ -1,4 +1,5 @@
--- Add payment tracking columns to invoices (SQLite ignores if column exists)
+-- Add payment tracking columns to invoices
+-- These may already exist, migration runner will skip errors  
 ALTER TABLE invoices ADD COLUMN paid_by_user_id INTEGER;
 ALTER TABLE invoices ADD COLUMN paid_at TEXT;
 
