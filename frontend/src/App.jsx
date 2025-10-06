@@ -101,6 +101,7 @@ export default function App() {
   });
   const [edit, setEdit] = useState(null);
   const [viewInvoice, setViewInvoice] = useState(null);
+  const [showBatchEntry, setShowBatchEntry] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -611,9 +612,17 @@ export default function App() {
                   className="w-full px-3 py-2 border rounded-lg"
                 />
               </div>
-              <button onClick={addEntry} className="w-full bg-blue-600 text-white py-2 rounded-lg">
-                <Clock size={20} className="inline mr-2" /> Log Time
-              </button>
+              <div className="flex gap-2">
+                <button onClick={addEntry} className="flex-1 bg-blue-600 text-white py-2 rounded-lg">
+                  <Clock size={20} className="inline mr-2" /> Log Time
+                </button>
+                <button 
+                  onClick={() => setShowBatchEntry(true)} 
+                  className="bg-indigo-600 text-white px-4 py-2 rounded-lg"
+                >
+                  Batch Add Time
+                </button>
+              </div>
             </div>
           </div>
           <div className="space-y-4">
@@ -768,6 +777,15 @@ export default function App() {
       </div>
       {viewInvoice && (
         <InvoiceModal invoice={viewInvoice} entries={entries} onClose={() => setViewInvoice(null)} onDownload={download} />
+      )}
+      {showBatchEntry && (
+        <BatchTimeEntry
+          onClose={() => setShowBatchEntry(false)}
+          onSuccess={async (result) => {
+            await fetchData();
+            alert(`Successfully imported ${result.created} entries`);
+          }}
+        />
       )}
     </div>
   );

@@ -9,6 +9,8 @@ export const api = {
     create: () => `${API_URL}/entries`,
     update: (id) => `${API_URL}/entries/${id}`,
     delete: (id) => `${API_URL}/entries/${id}`,
+    batchPreview: () => `${API_URL}/entries/batch/preview`,
+    batchImport: () => `${API_URL}/entries/batch/import`,
   },
   invoices: {
     list: () => `${API_URL}/invoices`,
