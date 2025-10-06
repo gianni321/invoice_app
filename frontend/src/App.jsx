@@ -171,12 +171,13 @@ export default function App() {
           hours: Number(form.hours),
           task: form.task,
           notes: form.notes,
-          date: new Date(form.date).toISOString()
+          date: form.date  // Changed from new Date(form.date).toISOString()
         })
       });
 
       if (!response.ok) {
-        throw new Error('Failed to create entry');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create entry');
       }
 
       const newEntry = await response.json();
@@ -189,7 +190,7 @@ export default function App() {
       });
     } catch (error) {
       console.error('Error adding entry:', error);
-      alert('Failed to add entry');
+      alert(error.message || 'Failed to add entry');
     }
   };
 
