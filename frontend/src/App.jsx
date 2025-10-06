@@ -1,10 +1,8 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Clock, Download, Lock, Home, Plus, Trash2, PencilLine, Check, X, FileText, CheckCircle, DollarSign, AlertCircle } from 'lucide-react';
 import { api, getAuthHeaders, setAuthToken, clearAuthToken } from './config';
 
 // Format currency
-const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
-
 const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
 function InvoiceModal({ invoice, entries, onClose, onDownload }) {
@@ -88,6 +86,7 @@ function InvoiceModal({ invoice, entries, onClose, onDownload }) {
 }
 
 export default function App() {
+  console.log('App component rendering');
   const [user, setUser] = useState(null);
   const [isAdmin, setAdmin] = useState(false);
   const [pin, setPin] = useState('');
@@ -103,22 +102,29 @@ export default function App() {
   const [edit, setEdit] = useState(null);
   const [viewInvoice, setViewInvoice] = useState(null);
 
-  const login = useCallback(() => {
-    if (pin === '0000') {
-      setAdmin(true);
-      setUser({ id: 0, name: 'Admin' });
+  const login = useCallback(async () => {
+    try {
+      const response = await fetch(`${api.auth.login()}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ pin })
+      });
+
+      if (!response.ok) {
+        throw new Error('Login failed');
+      }
+
+      const data = await response.json();
+      setAuthToken(data.token);
+      setUser(data.user);
+      setAdmin(data.user.role === 'admin');
       setPin('');
       setErr('');
-    } else {
-      const m = TEAM.find(t => t.pin === pin);
-      if (m) {
-        setUser(m);
-        setAdmin(false);
-        setPin('');
-        setErr('');
-      } else {
-        setErr('Invalid PIN');
-      }
+    } catch (error) {
+      console.error('Login error:', error);
+      setErr('Invalid PIN');
     }
   }, [pin]);
 
@@ -318,7 +324,7 @@ export default function App() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
         <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full">
-          <div className="text-center mb-6">
+          <div className="text-center mb-6" style={{ minHeight: '200px' }}>
             <div className="bg-indigo-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
               <Lock className="text-indigo-600" size={32} />
             </div>
