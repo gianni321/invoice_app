@@ -6,6 +6,7 @@ const rateLimit = require('express-rate-limit');
 const authRoutes = require('./routes/auth');
 const entryRoutes = require('./routes/entries');
 const invoiceRoutes = require('./routes/invoices');
+const adminRoutes = require('./routes/admin');
 
 // Validate JWT Secret
 if (!process.env.JWT_SECRET || /change_this|^.{0,31}$/.test(process.env.JWT_SECRET)) {
@@ -44,6 +45,7 @@ app.use((req, res, next) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/entries', entryRoutes);
 app.use('/api/invoices', invoiceRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

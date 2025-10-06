@@ -15,6 +15,11 @@ export const api = {
     submit: () => `${API_URL}/invoices/submit`,
     approve: (id) => `${API_URL}/invoices/${id}/approve`,
     markPaid: (id) => `${API_URL}/invoices/${id}/paid`,
+    deadlineStatus: () => `${API_URL}/invoices/deadline-status`,
+  },
+  admin: {
+    getDeadlineSettings: () => `${API_URL}/admin/invoice-deadline`,
+    setDeadlineSettings: () => `${API_URL}/admin/invoice-deadline`,
   },
 };
 

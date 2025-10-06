@@ -1,8 +1,65 @@
 const express = require('express');
 const db = require('../database');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
+const { getInvoiceSettings } = require('../lib/settings');
+const { getDueDatetimes, periodBounds, statusFor } = require('../lib/deadlines');
 
 const router = express.Router();
+
+// Get deadline status
+router.get('/deadline-status', authenticateToken, async (req, res) => {
+  try {
+    const s = await getInvoiceSettings();
+    const { now, last, next } = getDueDatetimes({
+      weekday: s.weekday,
+      hour: s.hour,
+      minute: s.minute,
+      zone: s.zone
+    });
+    const { period_start, period_end } = periodBounds({ lastDue: last, nextDue: next });
+
+    // find most recent invoice per user for this period
+    const users = await db.query('SELECT id, name FROM users');
+    const statuses = [];
+
+    for (const u of users) {
+      const inv = await db.get(
+        `SELECT id FROM invoices 
+         WHERE user_id=? AND period_start=? AND period_end=? LIMIT 1`,
+        [u.id, period_start, period_end]
+      );
+      
+      const submitted = !!inv;
+      const st = submitted ? 'ok' : statusFor(now, next, s.warnWindowHours);
+      let message = null;
+
+      if (!submitted) {
+        if (st === 'approaching') {
+          message = `Invoice due ${next.setZone(s.zone).toFormat("ccc, LLL d @ hh:mm a z")}. Please submit.`;
+        } else if (st === 'late') {
+          message = `Invoice is late (due ${next.setZone(s.zone).toFormat("ccc, LLL d @ hh:mm a z")}). Payment may be delayed.`;
+        }
+      }
+
+      statuses.push({
+        userId: u.id,
+        userName: u.name,
+        submitted,
+        status: st,
+        deadline_iso: next.toUTC().toISO(),
+        deadline_local: next.setZone(s.zone).toISO(),
+        period_start,
+        period_end,
+        message
+      });
+    }
+
+    res.json({ zone: s.zone, warnWindowHours: s.warnWindowHours, statuses });
+  } catch (error) {
+    console.error('Error getting deadline status:', error);
+    res.status(500).json({ error: 'Failed to get deadline status' });
+  }
+});
 
 // Get invoices (user sees their own, admin sees all)
 router.get('/', authenticateToken, async (req, res) => {
@@ -61,10 +118,33 @@ router.post('/submit', authenticateToken, async (req, res) => {
     // Calculate total
     const total = entries.reduce((sum, e) => sum + (e.hours * user.rate), 0);
 
-    // Create invoice
+    // Get current period bounds
+    const s = await getInvoiceSettings();
+    const { last, next } = getDueDatetimes({
+      weekday: s.weekday,
+      hour: s.hour,
+      minute: s.minute,
+      zone: s.zone
+    });
+    const { period_start, period_end } = periodBounds({ lastDue: last, nextDue: next });
+
+    // Check for existing invoice in this period
+    const existing = await db.get(
+      `SELECT id FROM invoices 
+       WHERE user_id = ? AND period_start = ? AND period_end = ?`,
+      [req.user.id, period_start, period_end]
+    );
+
+    if (existing) {
+      return res.status(400).json({ error: 'Invoice already submitted for this period' });
+    }
+
+    // Create invoice with period bounds
     const result = await db.run(
-      'INSERT INTO invoices (user_id, total, status) VALUES (?, ?, ?)',
-      [req.user.id, total, 'pending']
+      `INSERT INTO invoices 
+       (user_id, total, status, period_start, period_end) 
+       VALUES (?, ?, ?, ?, ?)`,
+      [req.user.id, total, 'pending', period_start, period_end]
     );
 
     // Update entries with invoice_id
