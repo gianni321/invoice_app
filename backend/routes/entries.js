@@ -1,78 +1,118 @@
 const express = require('express');
-const router = express.Router();
-const auth = require('../middleware/auth');
+const db = require('../database');
+const { authenticateToken } = require('../middleware/auth');
 
-// @route   GET api/entries
-// @desc    Get user's time entries
-// @access  Private
-router.get('/', auth, async (req, res) => {
+const router = express.Router();
+
+// Get all entries for current user
+router.get('/', authenticateToken, async (req, res) => {
   try {
-    // Replace with database query in production
-    const entries = []; // Get from database
+    const entries = await db.query(
+      `SELECT e.*, u.name as user_name, u.rate 
+       FROM entries e 
+       JOIN users u ON e.user_id = u.id 
+       WHERE e.user_id = ? 
+       ORDER BY e.date DESC`,
+      [req.user.id]
+    );
     res.json(entries);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Error fetching entries:', error);
+    res.status(500).json({ error: 'Failed to fetch entries' });
   }
 });
 
-// @route   POST api/entries
-// @desc    Create a time entry
-// @access  Private
-router.post('/', auth, async (req, res) => {
+// Create new entry
+router.post('/', authenticateToken, async (req, res) => {
   try {
     const { hours, task, notes, date } = req.body;
-    
-    // Validate input
+
     if (!hours || !task || !date) {
-      return res.status(400).json({ message: 'Please include all required fields' });
+      return res.status(400).json({ error: 'Hours, task, and date are required' });
     }
 
-    // Create entry (replace with database operation in production)
-    const entry = {
-      id: Date.now(),
-      userId: req.user.id,
-      userName: req.user.name,
-      hours: Number(hours),
-      task,
-      notes,
-      date: new Date(date).toISOString(),
-      rate: req.user.rate,
-      invoiceId: null
-    };
+    if (hours <= 0 || hours > 24) {
+      return res.status(400).json({ error: 'Hours must be between 0 and 24' });
+    }
 
-    res.json(entry);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
+    const result = await db.run(
+      `INSERT INTO entries (user_id, hours, task, notes, date) 
+       VALUES (?, ?, ?, ?, ?)`,
+      [req.user.id, hours, task, notes || '', date]
+    );
 
-// @route   PUT api/entries/:id
-// @desc    Update a time entry
-// @access  Private
-router.put('/:id', auth, async (req, res) => {
-  try {
-    const { hours, task, notes } = req.body;
+    const entry = await db.get('SELECT * FROM entries WHERE id = ?', [result.id]);
     
-    // Update entry (replace with database operation in production)
-    res.json({ message: 'Entry updated' });
+    await db.run(
+      'INSERT INTO audit_log (user_id, action, details) VALUES (?, ?, ?)',
+      [req.user.id, 'ENTRY_CREATED', `Created entry: ${task}`]
+    );
+
+    res.status(201).json(entry);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Error creating entry:', error);
+    res.status(500).json({ error: 'Failed to create entry' });
   }
 });
 
-// @route   DELETE api/entries/:id
-// @desc    Delete a time entry
-// @access  Private
-router.delete('/:id', auth, async (req, res) => {
+// Update entry
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
-    // Delete entry (replace with database operation in production)
+    const { id } = req.params;
+    const { hours, task, notes, date } = req.body;
+
+    // Check if entry belongs to user and is not invoiced
+    const entry = await db.get(
+      'SELECT * FROM entries WHERE id = ? AND user_id = ?',
+      [id, req.user.id]
+    );
+
+    if (!entry) {
+      return res.status(404).json({ error: 'Entry not found' });
+    }
+
+    if (entry.invoice_id) {
+      return res.status(400).json({ error: 'Cannot edit invoiced entry' });
+    }
+
+    await db.run(
+      `UPDATE entries 
+       SET hours = ?, task = ?, notes = ?, date = ?, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = ?`,
+      [hours, task, notes || '', date, id]
+    );
+
+    const updated = await db.get('SELECT * FROM entries WHERE id = ?', [id]);
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating entry:', error);
+    res.status(500).json({ error: 'Failed to update entry' });
+  }
+});
+
+// Delete entry
+router.delete('/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const entry = await db.get(
+      'SELECT * FROM entries WHERE id = ? AND user_id = ?',
+      [id, req.user.id]
+    );
+
+    if (!entry) {
+      return res.status(404).json({ error: 'Entry not found' });
+    }
+
+    if (entry.invoice_id) {
+      return res.status(400).json({ error: 'Cannot delete invoiced entry' });
+    }
+
+    await db.run('DELETE FROM entries WHERE id = ?', [id]);
     res.json({ message: 'Entry deleted' });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Error deleting entry:', error);
+    res.status(500).json({ error: 'Failed to delete entry' });
   }
 });
 

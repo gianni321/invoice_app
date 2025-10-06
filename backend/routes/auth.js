@@ -1,48 +1,60 @@
 const express = require('express');
-const router = express.Router();
-const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const db = require('../database');
 
-// Mock user data (replace with database in production)
-const TEAM = [
-  { id: 1, name: 'John Smith', rate: 75, pin: '1234' },
-  { id: 2, name: 'Sarah Johnson', rate: 85, pin: '5678' },
-  { id: 3, name: 'Mike Chen', rate: 70, pin: '9012' },
-];
+const router = express.Router();
 
-// @route   POST api/auth/login
-// @desc    Authenticate user & get token
-// @access  Public
+// Login with PIN
 router.post('/login', async (req, res) => {
-  const { pin } = req.body;
-
   try {
-    // Check for admin
-    if (pin === '0000') {
-      const token = jwt.sign(
-        { id: 0, name: 'Admin', isAdmin: true },
-        process.env.JWT_SECRET,
-        { expiresIn: '24h' }
-      );
-      return res.json({ token });
+    const { pin } = req.body;
+
+    if (!pin || pin.length !== 4) {
+      return res.status(400).json({ error: 'Invalid PIN format' });
     }
 
-    // Check for team member
-    const user = TEAM.find(t => t.pin === pin);
+    // Find all users and check PIN
+    const users = await db.query('SELECT * FROM users');
+    let user = null;
+
+    for (const u of users) {
+      const isMatch = await bcrypt.compare(pin, u.pin_hash);
+      if (isMatch) {
+        user = u;
+        break;
+      }
+    }
+
     if (!user) {
-      return res.status(400).json({ message: 'Invalid PIN' });
+      return res.status(401).json({ error: 'Invalid PIN' });
     }
 
+    // Create JWT token
     const token = jwt.sign(
-      { id: user.id, name: user.name, rate: user.rate, isAdmin: false },
+      { id: user.id, name: user.name, role: user.role },
       process.env.JWT_SECRET,
-      { expiresIn: '24h' }
+      { expiresIn: '8h' }
     );
 
-    res.json({ token });
+    // Log login
+    await db.run(
+      'INSERT INTO audit_log (user_id, action, details, ip_address) VALUES (?, ?, ?, ?)',
+      [user.id, 'LOGIN', `User ${user.name} logged in`, req.ip]
+    );
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        rate: user.rate,
+        role: user.role
+      }
+    });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Login failed' });
   }
 });
 
