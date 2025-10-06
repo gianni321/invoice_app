@@ -3,6 +3,8 @@ const db = require('../database');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
 const { getInvoiceSettings } = require('../lib/settings');
 const { getDueDatetimes, periodBounds, statusFor } = require('../lib/deadlines');
+const { notifyAdminsOnSubmit, notifyUserOnPaid } = require('../lib/invoiceNotify');
+const { fmtCurrency } = require('../lib/format');
 
 const router = express.Router();
 
@@ -163,6 +165,31 @@ router.post('/submit', authenticateToken, async (req, res) => {
     const invoice = await db.get('SELECT * FROM invoices WHERE id = ?', [result.id]);
     invoice.entries = entries;
 
+    // Send email notification to admins
+    try {
+      await notifyAdminsOnSubmit({
+        invoice: { 
+          id: result.id, 
+          total_formatted: fmtCurrency(total), 
+          created_at: new Date().toISOString() 
+        },
+        user: { 
+          id: req.user.id, 
+          name: req.user.name, 
+          email: req.user.email 
+        }
+      });
+
+      // Log email sent
+      await db.run(
+        'INSERT INTO email_log (type, invoice_id, to_email, sent_at) VALUES (?, ?, ?, ?)',
+        ['submit_admin', result.id, process.env.ADMIN_NOTIFY_EMAILS, new Date().toISOString()]
+      );
+    } catch (emailError) {
+      // Log email error but don't fail the request
+      console.error('Error sending admin notification:', emailError);
+    }
+
     res.status(201).json(invoice);
   } catch (error) {
     console.error('Error submitting invoice:', error);
@@ -197,10 +224,11 @@ router.put('/:id/approve', authenticateToken, requireAdmin, async (req, res) => 
 router.put('/:id/paid', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
+    const now = new Date().toISOString();
 
     await db.run(
-      'UPDATE invoices SET status = ?, paid_at = CURRENT_TIMESTAMP WHERE id = ?',
-      ['paid', id]
+      'UPDATE invoices SET status = ?, paid_at = ?, paid_by_user_id = ? WHERE id = ?',
+      ['paid', now, req.user.id, id]
     );
 
     await db.run(
@@ -208,7 +236,43 @@ router.put('/:id/paid', authenticateToken, requireAdmin, async (req, res) => {
       [req.user.id, 'INVOICE_PAID', `Invoice ${id} marked as paid`]
     );
 
-    const invoice = await db.get('SELECT * FROM invoices WHERE id = ?', [id]);
+    const invoice = await db.get(`
+      SELECT i.*, u.name as user_name, u.email as user_email 
+      FROM invoices i 
+      JOIN users u ON i.user_id = u.id 
+      WHERE i.id = ?`, 
+      [id]
+    );
+
+    // Send email notification to user
+    try {
+      const member = {
+        name: invoice.user_name,
+        email: invoice.user_email
+      };
+
+      const payer = await db.get('SELECT name FROM users WHERE id = ?', [req.user.id]);
+
+      await notifyUserOnPaid({
+        invoice: { 
+          id: invoice.id, 
+          total_formatted: fmtCurrency(invoice.total), 
+          paid_at: now 
+        },
+        user: member,
+        paidBy: payer
+      });
+
+      // Log email sent
+      await db.run(
+        'INSERT INTO email_log (type, invoice_id, to_email, sent_at) VALUES (?, ?, ?, ?)',
+        ['paid_user', id, invoice.user_email, now]
+      );
+    } catch (emailError) {
+      // Log email error but don't fail the request
+      console.error('Error sending payment notification:', emailError);
+    }
+
     res.json(invoice);
   } catch (error) {
     console.error('Error marking invoice as paid:', error);
