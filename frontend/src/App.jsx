@@ -1,11 +1,9 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Clock, Download, Lock, Home, Plus, Trash2, PencilLine, Check, X, FileText, CheckCircle, DollarSign, AlertCircle } from 'lucide-react';
+import { api, getAuthHeaders, setAuthToken, clearAuthToken } from './config';
 
-const TEAM = [
-  { id: 1, name: 'John Smith', rate: 75, pin: '1234' },
-  { id: 2, name: 'Sarah Johnson', rate: 85, pin: '5678' },
-  { id: 3, name: 'Mike Chen', rate: 70, pin: '9012' },
-];
+// Format currency
+const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
 const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
