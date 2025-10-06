@@ -102,6 +102,28 @@ export default function App() {
   const [edit, setEdit] = useState(null);
   const [viewInvoice, setViewInvoice] = useState(null);
 
+  const fetchData = async () => {
+    try {
+      const [entriesResponse, invoicesResponse] = await Promise.all([
+        fetch(api.entries.list(), { headers: getAuthHeaders() }),
+        fetch(api.invoices.list(), { headers: getAuthHeaders() })
+      ]);
+
+      if (!entriesResponse.ok || !invoicesResponse.ok) {
+        throw new Error('Failed to fetch data');
+      }
+
+      const entriesData = await entriesResponse.json();
+      const invoicesData = await invoicesResponse.json();
+
+      setEntries(entriesData);
+      setInvoices(invoicesData);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      alert('Failed to load data');
+    }
+  };
+
   const login = useCallback(async () => {
     try {
       const response = await fetch(`${api.auth.login()}`, {
@@ -122,6 +144,9 @@ export default function App() {
       setAdmin(data.user.role === 'admin');
       setPin('');
       setErr('');
+      
+      // Fetch initial data after successful login
+      await fetchData();
     } catch (error) {
       console.error('Login error:', error);
       setErr('Invalid PIN');
@@ -135,59 +160,155 @@ export default function App() {
     setErr('');
   };
 
-  const addEntry = () => {
+  const addEntry = async () => {
     if (!form.hours || !form.task || !form.date) return;
-    setEntries([{
-      id: Date.now(),
-      userId: user.id,
-      userName: user.name,
-      hours: Number(form.hours),
-      task: form.task,
-      notes: form.notes,
-      date: new Date(form.date).toISOString(),
-      rate: user.rate,
-      invoiceId: null
-    }, ...entries]);
-    setForm({ 
-      hours: '', 
-      task: '', 
-      notes: '',
-      date: new Date().toISOString().split('T')[0]
-    });
+    try {
+      const response = await fetch(api.entries.create(), {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          hours: Number(form.hours),
+          task: form.task,
+          notes: form.notes,
+          date: new Date(form.date).toISOString()
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create entry');
+      }
+
+      const newEntry = await response.json();
+      setEntries([newEntry, ...entries]);
+      setForm({ 
+        hours: '', 
+        task: '', 
+        notes: '',
+        date: new Date().toISOString().split('T')[0]
+      });
+    } catch (error) {
+      console.error('Error adding entry:', error);
+      alert('Failed to add entry');
+    }
   };
 
-  const delEntry = id => {
+  const delEntry = async id => {
     const entry = entries.find(e => e.id === id);
     if (entry?.invoiceId) return alert('Cannot delete invoiced entry');
-    if (confirm('Delete?')) setEntries(entries.filter(e => e.id !== id));
+    if (!confirm('Delete?')) return;
+
+    try {
+      const response = await fetch(api.entries.delete(id), {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete entry');
+      }
+
+      setEntries(entries.filter(e => e.id !== id));
+    } catch (error) {
+      console.error('Error deleting entry:', error);
+      alert('Failed to delete entry');
+    }
   };
 
-  const saveEntry = () => {
+  const saveEntry = async () => {
     if (edit.invoiceId) return alert('Cannot edit invoiced entry');
-    setEntries(entries.map(e => e.id === edit.id ? edit : e));
-    setEdit(null);
+    
+    try {
+      const response = await fetch(api.entries.update(edit.id), {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          hours: Number(edit.hours),
+          task: edit.task,
+          notes: edit.notes,
+          date: edit.date
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update entry');
+      }
+
+      const updatedEntry = await response.json();
+      setEntries(entries.map(e => e.id === edit.id ? updatedEntry : e));
+      setEdit(null);
+    } catch (error) {
+      console.error('Error updating entry:', error);
+      alert('Failed to update entry');
+    }
   };
 
-  const submit = () => {
+  const submit = async () => {
     const openEntries = entries.filter(e => e.userId === user.id && !e.invoiceId);
     if (!openEntries.length) return alert('No open entries');
-    const invId = Date.now();
-    const inv = {
-      id: invId,
-      userId: user.id,
-      userName: user.name,
-      entryIds: openEntries.map(e => e.id),
-      total: openEntries.reduce((s, e) => s + e.hours * e.rate, 0),
-      status: 'pending',
-      date: new Date().toISOString()
-    };
-    setEntries(entries.map(e => openEntries.find(oe => oe.id === e.id) ? {...e, invoiceId: invId} : e));
-    setInvoices([inv, ...invoices]);
-    alert('Submitted!');
+
+    try {
+      const response = await fetch(api.invoices.submit(), {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to submit invoice');
+      }
+
+      const invoice = await response.json();
+      const updatedEntries = entries.map(e => 
+        openEntries.find(oe => oe.id === e.id) 
+          ? {...e, invoiceId: invoice.id} 
+          : e
+      );
+      
+      setEntries(updatedEntries);
+      setInvoices([invoice, ...invoices]);
+      alert('Invoice submitted successfully!');
+    } catch (error) {
+      console.error('Error submitting invoice:', error);
+      alert('Failed to submit invoice');
+    }
   };
 
-  const approve = id => setInvoices(invoices.map(i => i.id === id ? { ...i, status: 'approved' } : i));
-  const markPaid = id => setInvoices(invoices.map(i => i.id === id ? { ...i, status: 'paid' } : i));
+  const approve = async id => {
+    try {
+      const response = await fetch(api.invoices.approve(id), {
+        method: 'PUT',
+        headers: getAuthHeaders()
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to approve invoice');
+      }
+
+      const updatedInvoice = await response.json();
+      setInvoices(invoices.map(i => i.id === id ? updatedInvoice : i));
+    } catch (error) {
+      console.error('Error approving invoice:', error);
+      alert('Failed to approve invoice');
+    }
+  };
+
+  const markPaid = async id => {
+    try {
+      const response = await fetch(api.invoices.markPaid(id), {
+        method: 'PUT',
+        headers: getAuthHeaders()
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to mark invoice as paid');
+      }
+
+      const updatedInvoice = await response.json();
+      setInvoices(invoices.map(i => i.id === id ? updatedInvoice : i));
+    } catch (error) {
+      console.error('Error marking invoice as paid:', error);
+      alert('Failed to mark invoice as paid');
+    }
+  };
 
   const download = inv => {
     const invEntries = entries.filter(e => inv.entryIds.includes(e.id));
