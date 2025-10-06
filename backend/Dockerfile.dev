@@ -1,0 +1,21 @@
+# Hot-reload / debug-friendly image
+FROM node:20-alpine
+
+# tini = clean signal handling (Ctrl+C etc.)
+RUN apk add --no-cache tini
+
+WORKDIR /app
+
+# Install deps first (better layer caching)
+COPY package*.json ./
+RUN npm install --include=dev && npm i -g nodemon
+
+# Bring in the rest (dev uses bind mounts, but this helps first boot)
+COPY . .
+
+ENV NODE_ENV=development
+EXPOSE 3000 9229
+
+ENTRYPOINT ["/sbin/tini","--"]
+# nodemon watches for changes; inspector on 9229
+CMD ["nodemon","--inspect=0.0.0.0:9229","--watch","." ,"--ext","js,json,env","server.js"]
