@@ -1,6 +1,7 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const bcrypt = require('bcryptjs');
+const fs = require('fs').promises;
 
 const DB_PATH = path.join(__dirname, 'timetracker.db');
 
@@ -14,6 +15,22 @@ class Database {
         this.initialize();
       }
     });
+  }
+
+  async runMigrations() {
+    const migrationsDir = path.join(__dirname, 'migrations');
+    try {
+      const files = await fs.readdir(migrationsDir);
+      const migrations = files.filter(f => f.endsWith('.sql')).sort();
+      
+      for (const migration of migrations) {
+        const sql = await fs.readFile(path.join(migrationsDir, migration), 'utf8');
+        await this.run(sql);
+        console.log(`Ran migration: ${migration}`);
+      }
+    } catch (err) {
+      console.error('Migration error:', err);
+    }
   }
 
   initialize() {
@@ -74,6 +91,7 @@ class Database {
 
       // Create demo users
       this.createDemoUsers();
+      this.runMigrations();
     });
   }
 
