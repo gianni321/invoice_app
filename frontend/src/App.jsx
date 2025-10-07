@@ -6,17 +6,36 @@ import { api, getAuthHeaders, setAuthToken, clearAuthToken } from './config';
 const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
 function InvoiceModal({ invoice, entries, onClose, onDownload }) {
-  const invEntries = invoice.entries || [];  // Changed from entries.filter(e => invoice.entryIds.includes(e.id))
+  const invEntries = invoice.entries || [];
+  
+  // Safe helper functions
+  const fmtUSD = n =>
+    Number.isFinite(n) ? new Intl.NumberFormat('en-US', {style: 'currency', currency: 'USD'}).format(n) : '$0.00';
+  
+  const safeText = s => (s ?? '').toString();
+  
+  const safeDate = dateStr => {
+    if (!dateStr) return '—';
+    try {
+      // Add T12:00:00 to avoid UTC offset issues with YYYY-MM-DD
+      return new Date(dateStr + 'T12:00:00').toLocaleDateString();
+    } catch {
+      return '—';
+    }
+  };
   
   const groupedByDate = {};
   invEntries.forEach(e => {
-    const dateKey = new Date(e.date).toLocaleDateString();
+    const dateKey = safeDate(e.date);
     if (!groupedByDate[dateKey]) groupedByDate[dateKey] = [];
     groupedByDate[dateKey].push(e);
   });
 
   const sortedDates = Object.keys(groupedByDate).sort((a, b) => {
-    return new Date(groupedByDate[b][0].date) - new Date(groupedByDate[a][0].date);
+    // Sort by actual date, with safe fallback
+    const dateA = groupedByDate[a][0]?.date ? new Date(groupedByDate[a][0].date + 'T12:00:00') : new Date(0);
+    const dateB = groupedByDate[b][0]?.date ? new Date(groupedByDate[b][0].date + 'T12:00:00') : new Date(0);
+    return dateB - dateA;
   });
 
   return (
@@ -32,20 +51,20 @@ function InvoiceModal({ invoice, entries, onClose, onDownload }) {
           <div className="mb-6">
             <div className="flex justify-between items-start mb-4">
               <div>
-                <h3 className="text-xl font-bold">{invoice.userName}</h3>
-                <p className="text-gray-600">{new Date(invoice.date).toLocaleDateString()}</p>
+                <h3 className="text-xl font-bold">{safeText(invoice.user?.name || invoice.userName) || '—'}</h3>
+                <p className="text-gray-600">{safeDate(invoice.date)}</p>
               </div>
               <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
-                invoice.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                invoice.status === 'submitted' ? 'bg-yellow-100 text-yellow-800' :
                 invoice.status === 'approved' ? 'bg-green-100 text-green-800' :
                 'bg-purple-100 text-purple-800'
               }`}>
-                {invoice.status.toUpperCase()}
+                {(invoice.status || 'unknown').toUpperCase()}
               </span>
             </div>
             <div className="bg-indigo-50 p-4 rounded-lg">
               <p className="text-sm text-gray-600">Total Amount</p>
-              <p className="text-3xl font-bold text-indigo-600">{fmt.format(invoice.total)}</p>
+              <p className="text-3xl font-bold text-indigo-600">{fmtUSD(invoice.total)}</p>
             </div>
           </div>
 
@@ -53,24 +72,25 @@ function InvoiceModal({ invoice, entries, onClose, onDownload }) {
           <div className="space-y-4">
             {sortedDates.map(dateKey => {
               const dateEntries = groupedByDate[dateKey];
-              const dayTotal = dateEntries.reduce((sum, e) => sum + (e.hours * e.rate), 0);
-              const dayHours = dateEntries.reduce((sum, e) => sum + e.hours, 0);
+              // Use server-computed amounts instead of client calculation
+              const dayTotal = dateEntries.reduce((sum, e) => sum + (Number.isFinite(e.amount) ? e.amount : 0), 0);
+              const dayHours = dateEntries.reduce((sum, e) => sum + (Number.isFinite(e.hours) ? e.hours : 0), 0);
               
               return (
                 <div key={dateKey} className="border rounded-lg overflow-hidden">
                   <div className="bg-indigo-50 px-4 py-2 flex justify-between items-center">
                     <span className="font-semibold text-indigo-900">{dateKey}</span>
-                    <span className="text-sm text-indigo-700">{dayHours}h • {fmt.format(dayTotal)}</span>
+                    <span className="text-sm text-indigo-700">{dayHours}h • {fmtUSD(dayTotal)}</span>
                   </div>
                   <div className="divide-y">
                     {dateEntries.map(e => (
                       <div key={e.id} className="p-3 bg-white">
                         <div className="flex justify-between items-start">
                           <div className="flex-1">
-                            <div className="font-medium">{e.hours}h • {e.task}</div>
-                            {e.notes && <div className="text-sm text-gray-600 mt-1">{e.notes}</div>}
+                            <div className="font-medium">{Number.isFinite(e.hours) ? e.hours : 0}h • {safeText(e.task)}</div>
+                            {e.notes && <div className="text-sm text-gray-600 mt-1">{safeText(e.notes)}</div>}
                           </div>
-                          <div className="text-green-600 font-semibold ml-4">{fmt.format(e.hours * e.rate)}</div>
+                          <div className="text-green-600 font-semibold ml-4">{fmtUSD(e.amount)}</div>
                         </div>
                       </div>
                     ))}
@@ -105,19 +125,20 @@ export default function App() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [entriesResponse, invoicesResponse] = await Promise.all([
-        fetch(api.entries.list(), { headers: getAuthHeaders() }),
+      // Fetch open entries (for Open Entries panel) and all invoices
+      const [openEntriesResponse, invoicesResponse] = await Promise.all([
+        fetch(api.entries.list('open'), { headers: getAuthHeaders() }),
         fetch(api.invoices.list(), { headers: getAuthHeaders() })
       ]);
 
-      if (!entriesResponse.ok || !invoicesResponse.ok) {
+      if (!openEntriesResponse.ok || !invoicesResponse.ok) {
         throw new Error('Failed to fetch data');
       }
 
-      const entriesData = await entriesResponse.json();
+      const openEntriesData = await openEntriesResponse.json();
       const invoicesData = await invoicesResponse.json();
 
-      setEntries(entriesData);
+      setEntries(openEntriesData); // Now this contains only open entries
       setInvoices(invoicesData);
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -162,24 +183,35 @@ export default function App() {
   };
 
   const addEntry = useCallback(async () => {
-    if (!form.hours || !form.task || !form.date) return;
+    // Input sanitization and validation
+    const hours = Number.parseFloat(form.hours);
+    if (!Number.isFinite(hours) || hours <= 0 || hours > 24) {
+      return alert('Hours must be a valid number between 0 and 24');
+    }
+    
+    const task = form.task?.trim();
+    if (!task) {
+      return alert('Task description is required');
+    }
+    
+    if (!form.date) {
+      return alert('Date is required');
+    }
+    
     try {
-      console.log('Submitting entry:', {
-        hours: Number(form.hours),
-        task: form.task,
-        notes: form.notes,
-        date: form.date
-      });
+      const payload = {
+        date: form.date,                    // keep YYYY-MM-DD
+        hours,                              // numeric!
+        task: task,
+        notes: (form.notes || '').trim()
+      };
+      
+      console.log('Submitting entry:', payload);
       
       const response = await fetch(api.entries.create(), {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({
-          hours: Number(form.hours),
-          task: form.task,
-          notes: form.notes,
-          date: form.date
-        })
+        body: JSON.stringify(payload)
       });
 
       console.log('Response status:', response.status);
@@ -218,7 +250,8 @@ export default function App() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to delete entry');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to delete entry');
       }
 
       setEntries(entries => entries.filter(e => e.id !== id));
@@ -231,20 +264,38 @@ export default function App() {
   const saveEntry = useCallback(async () => {
     if (!edit || edit.invoiceId) return alert('Cannot edit invoiced entry');
     
+    // Input sanitization and validation for editing
+    const hours = Number.parseFloat(edit.hours);
+    if (!Number.isFinite(hours) || hours <= 0 || hours > 24) {
+      return alert('Hours must be a valid number between 0 and 24');
+    }
+    
+    const task = edit.task?.trim();
+    if (!task) {
+      return alert('Task description is required');
+    }
+    
+    if (!edit.date) {
+      return alert('Date is required');
+    }
+    
     try {
+      const payload = {
+        hours,                              // numeric!
+        task: task,
+        notes: (edit.notes || '').trim(),
+        date: edit.date
+      };
+      
       const response = await fetch(api.entries.update(edit.id), {
         method: 'PUT',
         headers: getAuthHeaders(),
-        body: JSON.stringify({
-          hours: Number(edit.hours),
-          task: edit.task,
-          notes: edit.notes,
-          date: edit.date
-        })
+        body: JSON.stringify(payload)
       });
 
       if (!response.ok) {
-        throw new Error('Failed to update entry');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to update entry');
       }
 
       const updatedEntry = await response.json();
@@ -252,13 +303,14 @@ export default function App() {
       setEdit(null);
     } catch (error) {
       console.error('Error updating entry:', error);
-      alert('Failed to update entry');
+      alert(error.message || 'Failed to update entry');
     }
   }, [edit]);
 
   const submit = useCallback(async () => {
-    const openEntries = entries.filter(e => e.userId === user?.id && !e.invoiceId);
-    if (!openEntries.length) return alert('No open entries');
+    // Since entries now only contains open entries, check if any exist
+    const myOpenEntries = entries.filter(e => e.userId === user?.id);
+    if (!myOpenEntries.length) return alert('No open entries');
 
     try {
       const response = await fetch(api.invoices.submit(), {
@@ -271,11 +323,9 @@ export default function App() {
       }
 
       const invoice = await response.json();
-      setEntries(entries => entries.map(e => 
-        openEntries.find(oe => oe.id === e.id) 
-          ? {...e, invoiceId: invoice.id} 
-          : e
-      ));
+      
+      // Remove submitted entries from the entries list since they're no longer open
+      setEntries(entries => entries.filter(e => !myOpenEntries.find(oe => oe.id === e.id)));
       setInvoices(invoices => [invoice, ...invoices]);
       alert('Invoice submitted successfully!');
     } catch (error) {
@@ -340,17 +390,36 @@ export default function App() {
   };
 
   const downloadPDF = inv => {
-    const invEntries = inv.entries || [];  // Changed from entries.filter(e => inv.entryIds.includes(e.id))
+    const invEntries = inv.entries || [];
+    
+    // Safe helper functions (same as in modal)
+    const fmtUSD = n =>
+      Number.isFinite(n) ? new Intl.NumberFormat('en-US', {style: 'currency', currency: 'USD'}).format(n) : '$0.00';
+    
+    const safeText = s => (s ?? '').toString();
+    
+    const safeDate = dateStr => {
+      if (!dateStr) return '—';
+      try {
+        // Add T12:00:00 to avoid UTC offset issues with YYYY-MM-DD
+        return new Date(dateStr + 'T12:00:00').toLocaleDateString();
+      } catch {
+        return '—';
+      }
+    };
     
     const groupedByDate = {};
     invEntries.forEach(e => {
-      const dateKey = new Date(e.date).toLocaleDateString();
+      const dateKey = safeDate(e.date);
       if (!groupedByDate[dateKey]) groupedByDate[dateKey] = [];
       groupedByDate[dateKey].push(e);
     });
 
     const sortedDates = Object.keys(groupedByDate).sort((a, b) => {
-      return new Date(groupedByDate[b][0].date) - new Date(groupedByDate[a][0].date);
+      // Sort by actual date, with safe fallback
+      const dateA = groupedByDate[a][0]?.date ? new Date(groupedByDate[a][0].date + 'T12:00:00') : new Date(0);
+      const dateB = groupedByDate[b][0]?.date ? new Date(groupedByDate[b][0].date + 'T12:00:00') : new Date(0);
+      return dateB - dateA;
     });
 
     const printWindow = window.open('', '', 'width=800,height=600');
@@ -358,7 +427,7 @@ export default function App() {
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Invoice - ${inv.userName}</title>
+          <title>Invoice - ${safeText(inv.user?.name || inv.userName)}</title>
           <style>
             body { font-family: Arial, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; }
             .header { border-bottom: 3px solid #4f46e5; padding-bottom: 20px; margin-bottom: 30px; }
@@ -367,7 +436,7 @@ export default function App() {
             .info-row { display: flex; justify-content: space-between; margin: 10px 0; }
             .info-label { color: #6b7280; font-weight: 600; }
             .status { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
-            .status-pending { background: #fef3c7; color: #92400e; }
+            .status-submitted { background: #fef3c7; color: #92400e; }
             .status-approved { background: #d1fae5; color: #065f46; }
             .status-paid { background: #e9d5ff; color: #6b21a8; }
             .total-section { background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 30px 0; }
@@ -389,24 +458,24 @@ export default function App() {
         <body>
           <div class="header">
             <h1>INVOICE</h1>
-            <div class="subtitle">Invoice for ${inv.userName}</div>
+            <div class="subtitle">Invoice for ${safeText(inv.user?.name || inv.userName) || '—'}</div>
           </div>
 
           <div class="info-row">
             <div>
               <div class="info-label">Invoice Date</div>
-              <div>${new Date(inv.date).toLocaleDateString()}</div>
+              <div>${safeDate(inv.date)}</div>
             </div>
             <div>
               <div class="info-label">Status</div>
-              <span class="status status-${inv.status}">${inv.status}</span>
+              <span class="status status-${inv.status || 'unknown'}">${(inv.status || 'unknown').toUpperCase()}</span>
             </div>
           </div>
 
           <div class="total-section">
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <div class="info-label" style="font-size: 18px;">Total Amount</div>
-              <div class="total-amount">${fmt.format(inv.total)}</div>
+              <div class="total-amount">${fmtUSD(inv.total)}</div>
             </div>
           </div>
 
@@ -414,19 +483,20 @@ export default function App() {
           
           ${sortedDates.map(dateKey => {
             const dateEntries = groupedByDate[dateKey];
-            const dayTotal = dateEntries.reduce((sum, e) => sum + (e.hours * e.rate), 0);
-            const dayHours = dateEntries.reduce((sum, e) => sum + e.hours, 0);
+            // Use server-computed amounts instead of client calculation
+            const dayTotal = dateEntries.reduce((sum, e) => sum + (Number.isFinite(e.amount) ? e.amount : 0), 0);
+            const dayHours = dateEntries.reduce((sum, e) => sum + (Number.isFinite(e.hours) ? e.hours : 0), 0);
             
             return `
               <div class="date-group">
                 <div class="date-header">
                   <span>${dateKey}</span>
-                  <span>${dayHours}h • ${fmt.format(dayTotal)}</span>
+                  <span>${dayHours}h • ${fmtUSD(dayTotal)}</span>
                 </div>
                 ${dateEntries.map(e => `
                   <div class="entry">
-                    <div class="entry-task">${e.hours}h • ${e.task} <span class="entry-amount">${fmt.format(e.hours * e.rate)}</span></div>
-                    ${e.notes ? `<div class="entry-notes">${e.notes}</div>` : ''}
+                    <div class="entry-task">${Number.isFinite(e.hours) ? e.hours : 0}h • ${safeText(e.task)} <span class="entry-amount">${fmtUSD(e.amount)}</span></div>
+                    ${e.notes ? `<div class="entry-notes">${safeText(e.notes)}</div>` : ''}
                   </div>
                 `).join('')}
               </div>
@@ -454,9 +524,9 @@ export default function App() {
   }, [user, fetchData]);
 
   const myEntries = useMemo(() => entries.filter(e => e.userId === user?.id), [entries, user]);
-  const openEntries = useMemo(() => myEntries.filter(e => !e.invoiceId), [myEntries]);
+  const openEntries = useMemo(() => myEntries, [myEntries]); // entries now only contains open entries
   const myInvoices = useMemo(() => invoices.filter(i => i.userId === user?.id), [invoices, user]);
-  const pendingInv = useMemo(() => myInvoices.filter(i => i.status === 'pending'), [myInvoices]);
+  const pendingInv = useMemo(() => myInvoices.filter(i => i.status === 'submitted'), [myInvoices]);
   const approvedInv = useMemo(() => myInvoices.filter(i => i.status === 'approved' || i.status === 'paid'), [myInvoices]);
 
   if (!user) {
@@ -502,8 +572,8 @@ export default function App() {
           <div className="grid grid-cols-3 gap-4 mb-6">
             <div className="bg-yellow-50 p-4 rounded-xl">
               <AlertCircle className="text-yellow-600 mb-2" />
-              <p className="text-2xl font-bold">{invoices.filter(i => i.status === 'pending').length}</p>
-              <p className="text-sm">Pending</p>
+              <p className="text-2xl font-bold">{invoices.filter(i => i.status === 'submitted').length}</p>
+              <p className="text-sm">Submitted</p>
             </div>
             <div className="bg-green-50 p-4 rounded-xl">
               <CheckCircle className="text-green-600 mb-2" />
@@ -523,7 +593,7 @@ export default function App() {
             ) : (
               invoices.map(inv => (
                 <div key={inv.id} className={`border-l-4 p-4 mb-4 rounded ${
-                  inv.status === 'pending' ? 'border-yellow-500 bg-yellow-50' :
+                  inv.status === 'submitted' ? 'border-yellow-500 bg-yellow-50' :
                   inv.status === 'approved' ? 'border-green-500 bg-green-50' :
                   'border-purple-500 bg-purple-50'
                 }`}>
@@ -534,7 +604,7 @@ export default function App() {
                       <p className="text-sm text-gray-600">{fmt.format(inv.total)}</p>
                     </div>
                     <span className={`px-3 py-1 rounded-full text-xs h-fit ${
-                      inv.status === 'pending' ? 'bg-yellow-200' :
+                      inv.status === 'submitted' ? 'bg-yellow-200' :
                       inv.status === 'approved' ? 'bg-green-200' : 'bg-purple-200'
                     }`}>
                       {inv.status}
@@ -550,7 +620,7 @@ export default function App() {
                     <button onClick={() => downloadPDF(inv)} className="bg-purple-600 text-white px-3 py-1 rounded text-sm">
                       <FileText size={14} className="inline" /> PDF
                     </button>
-                    {inv.status === 'pending' && (
+                    {inv.status === 'submitted' && (
                       <button onClick={() => approve(inv.id)} className="bg-green-600 text-white px-3 py-1 rounded text-sm">
                         Approve
                       </button>
@@ -656,7 +726,7 @@ export default function App() {
               </button>
             </div>
             <div className="bg-white p-4 rounded-xl">
-              <h3 className="font-bold mb-2">Pending ({pendingInv.length})</h3>
+              <h3 className="font-bold mb-2">Submitted ({pendingInv.length})</h3>
               <div className="space-y-2 max-h-40 overflow-y-auto">
                 {pendingInv.map(inv => (
                   <div key={inv.id} className="border rounded p-2 bg-yellow-50">
@@ -759,37 +829,102 @@ export default function App() {
           </div>
         </div>
         <div className="bg-white p-6 rounded-xl">
-          <h2 className="text-xl font-bold mb-4">My Invoices</h2>
-          <div className="grid md:grid-cols-2 gap-4">
-            {myInvoices.length === 0 ? (
-              <p className="text-gray-500 col-span-2">No invoices yet</p>
-            ) : (
-              myInvoices.map(inv => (
-                <div key={inv.id} className={`border-l-4 p-4 rounded ${
-                  inv.status === 'pending' ? 'border-yellow-500 bg-yellow-50' :
-                  inv.status === 'approved' ? 'border-green-500 bg-green-50' :
-                  'border-purple-500 bg-purple-50'
-                }`}>
-                  <div className="flex justify-between items-start mb-2">
-                    <div>
-                      <p className="text-sm text-gray-600">{new Date(inv.date).toLocaleDateString()}</p>
-                      <p className="text-2xl font-bold">{fmt.format(inv.total)}</p>
+          <h2 className="text-xl font-bold mb-4">History</h2>
+          {myInvoices.length === 0 ? (
+            <p className="text-gray-500">No invoices yet</p>
+          ) : (
+            <div className="space-y-6">
+              {/* Paid Invoices */}
+              {(() => {
+                const paidInvoices = myInvoices.filter(i => i.status === 'paid').sort((a, b) => new Date(b.paid_at || b.created_at) - new Date(a.paid_at || a.created_at));
+                if (paidInvoices.length === 0) return null;
+                return (
+                  <div>
+                    <h3 className="font-bold mb-3 text-purple-600">Paid ({paidInvoices.length})</h3>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {paidInvoices.map(inv => (
+                        <div key={inv.id} className="border-l-4 border-purple-500 bg-purple-50 p-4 rounded">
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <p className="text-sm text-gray-600">Invoice #{inv.id}</p>
+                              <p className="text-sm text-gray-600">Paid: {inv.paid_at ? new Date(inv.paid_at).toLocaleDateString() : 'N/A'}</p>
+                              <p className="text-2xl font-bold">{fmt.format(inv.total)}</p>
+                            </div>
+                            <span className="px-2 py-1 rounded text-xs font-semibold bg-purple-200 text-purple-800">
+                              PAID
+                            </span>
+                          </div>
+                          <button onClick={() => setViewInvoice(inv)} className="text-blue-600 text-sm hover:underline">
+                            View Details & Entries
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                    <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                      inv.status === 'pending' ? 'bg-yellow-200 text-yellow-800' :
-                      inv.status === 'approved' ? 'bg-green-200 text-green-800' :
-                      'bg-purple-200 text-purple-800'
-                    }`}>
-                      {inv.status}
-                    </span>
                   </div>
-                  <button onClick={() => setViewInvoice(inv)} className="text-blue-600 text-sm hover:underline">
-                    View Details
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
+                );
+              })()}
+
+              {/* Approved Invoices */}
+              {(() => {
+                const approvedInvoices = myInvoices.filter(i => i.status === 'approved').sort((a, b) => new Date(b.approved_at || b.created_at) - new Date(a.approved_at || a.created_at));
+                if (approvedInvoices.length === 0) return null;
+                return (
+                  <div>
+                    <h3 className="font-bold mb-3 text-green-600">Approved ({approvedInvoices.length})</h3>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {approvedInvoices.map(inv => (
+                        <div key={inv.id} className="border-l-4 border-green-500 bg-green-50 p-4 rounded">
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <p className="text-sm text-gray-600">Invoice #{inv.id}</p>
+                              <p className="text-sm text-gray-600">Approved: {inv.approved_at ? new Date(inv.approved_at).toLocaleDateString() : 'N/A'}</p>
+                              <p className="text-2xl font-bold">{fmt.format(inv.total)}</p>
+                            </div>
+                            <span className="px-2 py-1 rounded text-xs font-semibold bg-green-200 text-green-800">
+                              APPROVED
+                            </span>
+                          </div>
+                          <button onClick={() => setViewInvoice(inv)} className="text-blue-600 text-sm hover:underline">
+                            View Details & Entries
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Submitted Invoices */}
+              {(() => {
+                const submittedInvoices = myInvoices.filter(i => i.status === 'submitted').sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                if (submittedInvoices.length === 0) return null;
+                return (
+                  <div>
+                    <h3 className="font-bold mb-3 text-yellow-600">Submitted ({submittedInvoices.length})</h3>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {submittedInvoices.map(inv => (
+                        <div key={inv.id} className="border-l-4 border-yellow-500 bg-yellow-50 p-4 rounded">
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <p className="text-sm text-gray-600">Invoice #{inv.id}</p>
+                              <p className="text-sm text-gray-600">Submitted: {new Date(inv.created_at).toLocaleDateString()}</p>
+                              <p className="text-2xl font-bold">{fmt.format(inv.total)}</p>
+                            </div>
+                            <span className="px-2 py-1 rounded text-xs font-semibold bg-yellow-200 text-yellow-800">
+                              SUBMITTED
+                            </span>
+                          </div>
+                          <button onClick={() => setViewInvoice(inv)} className="text-blue-600 text-sm hover:underline">
+                            View Details & Entries
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
         </div>
       </div>
       {viewInvoice && (

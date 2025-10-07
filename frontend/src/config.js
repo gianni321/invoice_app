@@ -1,11 +1,11 @@
-export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
 export const api = {
   auth: {
     login: () => `${API_URL}/auth/login`,
   },
   entries: {
-    list: () => `${API_URL}/entries`,
+    list: (scope) => `${API_URL}/entries${scope ? `?scope=${scope}` : ''}`,
     create: () => `${API_URL}/entries`,
     update: (id) => `${API_URL}/entries/${id}`,
     delete: (id) => `${API_URL}/entries/${id}`,
@@ -18,6 +18,8 @@ export const api = {
     approve: (id) => `${API_URL}/invoices/${id}/approve`,
     markPaid: (id) => `${API_URL}/invoices/${id}/paid`,
     deadlineStatus: () => `${API_URL}/invoices/deadline-status`,
+    entries: (id) => `${API_URL}/invoices/${id}/entries`,
+    revertToDraft: (id) => `${API_URL}/invoices/${id}/revert-to-draft`,
   },
   admin: {
     getDeadlineSettings: () => `${API_URL}/admin/invoice-deadline`,

@@ -7,13 +7,23 @@ const router = express.Router();
 // Get all entries for current user
 router.get('/', authenticateToken, async (req, res) => {
   try {
+    const { scope } = req.query;
+    
+    let whereClause = 'WHERE e.user_id = ?';
+    const params = [req.user.id];
+    
+    // Filter for open entries (not attached to any invoice)
+    if (scope === 'open') {
+      whereClause += ' AND e.invoice_id IS NULL';
+    }
+    
     const entries = await db.query(
       `SELECT e.*, u.name as user_name, u.rate, e.user_id as userId 
        FROM entries e 
        JOIN users u ON e.user_id = u.id 
-       WHERE e.user_id = ? 
+       ${whereClause}
        ORDER BY e.date DESC`,
-      [req.user.id]
+      params
     );
     res.json(entries);
   } catch (error) {
@@ -27,18 +37,20 @@ router.post('/', authenticateToken, async (req, res) => {
   try {
     const { hours, task, notes, date } = req.body;
 
-    if (!hours || !task || !date) {
-      return res.status(400).json({ error: 'Hours, task, and date are required' });
+    if (!task || !date) {
+      return res.status(400).json({ error: 'Task and date are required' });
     }
 
-    if (hours <= 0 || hours > 24) {
-      return res.status(400).json({ error: 'Hours must be between 0 and 24' });
+    // Validate hours is numeric and within range
+    const numericHours = Number.parseFloat(hours);
+    if (!Number.isFinite(numericHours) || numericHours <= 0 || numericHours > 24) {
+      return res.status(400).json({ error: 'Hours must be a valid number between 0 and 24' });
     }
 
     const result = await db.run(
       `INSERT INTO entries (user_id, hours, task, notes, date) 
        VALUES (?, ?, ?, ?, ?)`,
-      [req.user.id, hours, task, notes || '', date]
+      [req.user.id, numericHours, task.trim(), (notes || '').trim(), date]
     );
 
     // Get complete entry with user info
@@ -82,11 +94,21 @@ router.put('/:id', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Cannot edit invoiced entry' });
     }
 
+    // Validate input similar to create
+    if (!task || !date) {
+      return res.status(400).json({ error: 'Task and date are required' });
+    }
+
+    const numericHours = Number.parseFloat(hours);
+    if (!Number.isFinite(numericHours) || numericHours <= 0 || numericHours > 24) {
+      return res.status(400).json({ error: 'Hours must be a valid number between 0 and 24' });
+    }
+
     await db.run(
       `UPDATE entries 
        SET hours = ?, task = ?, notes = ?, date = ?, updated_at = CURRENT_TIMESTAMP 
        WHERE id = ?`,
-      [hours, task, notes || '', date, id]
+      [numericHours, task.trim(), (notes || '').trim(), date, id]
     );
 
     const updated = await db.get(

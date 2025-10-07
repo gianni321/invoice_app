@@ -86,12 +86,45 @@ router.get('/', authenticateToken, async (req, res) => {
       );
     }
 
-    // Get entries for each invoice
+    // Helper function for safe number conversion
+    const num = x => typeof x === 'number' ? x : parseFloat(String(x));
+
+    // Get entries for each invoice and compute amounts
     for (const invoice of invoices) {
-      invoice.entries = await db.query(
+      const entries = await db.query(
         'SELECT * FROM entries WHERE invoice_id = ?',
         [invoice.id]
       );
+      
+      // Get user info for this invoice
+      const user = await db.get('SELECT * FROM users WHERE id = ?', [invoice.user_id]);
+      
+      // Process entries to ensure they have computed amounts
+      invoice.entries = entries.map(e => {
+        const hours = num(e.hours);
+        const rate = Number.isFinite(e.rate) ? e.rate : (user?.rate || 0);
+        const amount = Math.round(hours * rate * 100) / 100;
+        
+        return {
+          ...e,
+          hours,
+          rate,
+          amount: Number.isFinite(amount) ? amount : 0
+        };
+      });
+      
+      // Add structured user data and date formatting
+      invoice.user = {
+        id: user?.id || invoice.user_id,
+        name: user?.name || invoice.user_name,
+        rate: user?.rate || 0
+      };
+      
+      // Format date as ISO YYYY-MM-DD
+      invoice.date = invoice.created_at ? invoice.created_at.split('T')[0] : null;
+      
+      // Add legacy compatibility fields
+      invoice.userName = invoice.user_name;
     }
 
     res.json(invoices);
@@ -104,26 +137,7 @@ router.get('/', authenticateToken, async (req, res) => {
 // Submit invoice
 router.post('/submit', authenticateToken, async (req, res) => {
   try {
-    // Get all open entries for user
-    const entries = await db.query(
-      'SELECT * FROM entries WHERE user_id = ? AND invoice_id IS NULL',
-      [req.user.id]
-    );
-
-    if (entries.length === 0) {
-      return res.status(400).json({ error: 'No open entries to invoice' });
-    }
-
-    // Get user rate and info
-    const user = await db.get('SELECT * FROM users WHERE id = ?', [req.user.id]);
-    if (!user) {
-      return res.status(400).json({ error: 'User not found' });
-    }
-    
-    // Calculate total
-    const total = entries.reduce((sum, e) => sum + (e.hours * user.rate), 0);
-
-    // Get current period bounds
+    // Get current period bounds first
     const s = await getInvoiceSettings();
     const { last, next } = getDueDatetimes({
       weekday: s.weekday,
@@ -133,7 +147,61 @@ router.post('/submit', authenticateToken, async (req, res) => {
     });
     const { period_start, period_end } = periodBounds({ lastDue: last, nextDue: next });
 
-    // Check for existing invoice in this period
+    // Get open entries for user that fall within the current period
+    const entries = await db.query(
+      `SELECT * FROM entries 
+       WHERE user_id = ? AND invoice_id IS NULL 
+       AND date >= ? AND date <= ?`,
+      [req.user.id, period_start.split('T')[0], period_end.split('T')[0]]
+    );
+
+    if (entries.length === 0) {
+      return res.status(400).json({ error: 'No open entries to invoice for current period' });
+    }
+
+    // Get user rate and info
+    const user = await db.get('SELECT * FROM users WHERE id = ?', [req.user.id]);
+    if (!user) {
+      return res.status(400).json({ error: 'User not found' });
+    }
+
+    // Validate user has a rate
+    if (!Number.isFinite(user.rate)) {
+      return res.status(400).json({ error: 'User rate missing' });
+    }
+    
+    // Helper function for safe number conversion
+    const num = x => typeof x === 'number' ? x : parseFloat(String(x));
+    
+    // Process entries and compute amounts
+    let total = 0;
+    for (const entry of entries) {
+      // Ensure numeric hours
+      entry.hours = num(entry.hours);
+      if (!Number.isFinite(entry.hours) || entry.hours <= 0) {
+        return res.status(400).json({ error: `Entry has invalid hours: ${entry.hours}` });
+      }
+      
+      // Use entry rate if available, otherwise user rate
+      const safeRate = Number.isFinite(entry.rate) ? entry.rate : user.rate;
+      
+      // Compute amount with proper rounding
+      const hours = Math.round(entry.hours * 100) / 100;
+      const amount = Math.round(hours * num(safeRate) * 100) / 100;
+      
+      if (!Number.isFinite(amount)) {
+        return res.status(400).json({ error: 'Invalid hours/rate calculation' });
+      }
+      
+      entry.amount = amount;
+      entry.rate = safeRate; // Ensure rate is set for response
+      total += amount;
+    }
+    
+    // Round total
+    total = Math.round(total * 100) / 100;
+
+    // Check for existing invoice in this period (using already calculated period bounds)
     const existing = await db.get(
       `SELECT id FROM invoices 
        WHERE user_id = ? AND period_start = ? AND period_end = ?`,
@@ -149,7 +217,7 @@ router.post('/submit', authenticateToken, async (req, res) => {
       `INSERT INTO invoices 
        (user_id, total, status, period_start, period_end, created_at) 
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [req.user.id, total, 'pending', period_start, period_end, new Date().toISOString()]
+      [req.user.id, total, 'submitted', period_start, period_end, new Date().toISOString()]
     );
 
     // Update entries with invoice_id
@@ -178,8 +246,34 @@ router.post('/submit', authenticateToken, async (req, res) => {
       throw new Error('Failed to retrieve created invoice');
     }
 
-    // Add entries to response
-    invoice.entries = entries;
+    // Structure response according to specification
+    const responseInvoice = {
+      id: invoice.id,
+      status: invoice.status,
+      date: invoice.created_at.split('T')[0], // ISO YYYY-MM-DD format
+      user: {
+        id: user.id,
+        name: user.name,
+        rate: user.rate
+      },
+      total: total,
+      entries: entries.map(e => ({
+        id: e.id,
+        date: e.date,
+        hours: e.hours,
+        rate: e.rate,
+        amount: e.amount,
+        task: e.task,
+        notes: e.notes || ''
+      })),
+      // Keep legacy fields for compatibility
+      userId: invoice.userId,
+      user_name: invoice.user_name,
+      userName: invoice.user_name
+    };
+
+    // Add entries to response (legacy format for compatibility)
+    responseInvoice.entries = entries;
 
     // Send email notification to admins
     try {
@@ -206,7 +300,7 @@ router.post('/submit', authenticateToken, async (req, res) => {
       console.error('Error sending admin notification:', emailError);
     }
 
-    res.status(201).json(invoice);
+    res.status(201).json(responseInvoice);
   } catch (error) {
     console.error('Error submitting invoice:', error);
     res.status(500).json({ error: 'Failed to submit invoice' });
@@ -293,6 +387,106 @@ router.post('/:id/paid', authenticateToken, requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('Error marking invoice as paid:', error);
     res.status(500).json({ error: 'Failed to mark invoice as paid' });
+  }
+});
+
+// Get entries attached to a specific invoice
+router.get('/:id/entries', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Check if user can access this invoice
+    const invoice = await db.get(
+      req.user.role === 'admin' 
+        ? 'SELECT * FROM invoices WHERE id = ?'
+        : 'SELECT * FROM invoices WHERE id = ? AND user_id = ?',
+      req.user.role === 'admin' ? [id] : [id, req.user.id]
+    );
+    
+    if (!invoice) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+    
+    const entries = await db.query(
+      `SELECT e.*, u.name as user_name, u.rate, e.user_id as userId 
+       FROM entries e 
+       JOIN users u ON e.user_id = u.id 
+       WHERE e.invoice_id = ? 
+       ORDER BY e.date DESC`,
+      [id]
+    );
+    
+    // Helper function for safe number conversion
+    const num = x => typeof x === 'number' ? x : parseFloat(String(x));
+    
+    // Process entries to ensure they have computed amounts
+    const processedEntries = entries.map(e => {
+      const hours = num(e.hours);
+      const rate = Number.isFinite(e.rate) ? e.rate : 0;
+      const amount = Math.round(hours * rate * 100) / 100;
+      
+      return {
+        ...e,
+        hours,
+        rate,
+        amount: Number.isFinite(amount) ? amount : 0
+      };
+    });
+    
+    res.json(processedEntries);
+  } catch (error) {
+    console.error('Error fetching invoice entries:', error);
+    res.status(500).json({ error: 'Failed to fetch invoice entries' });
+  }
+});
+
+// Revert invoice to draft status (admin only) - detaches entries
+router.post('/:id/revert-to-draft', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Get current invoice
+    const invoice = await db.get('SELECT * FROM invoices WHERE id = ?', [id]);
+    if (!invoice) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+    
+    // Only allow reverting from submitted/approved status, not paid
+    if (invoice.status === 'paid') {
+      return res.status(400).json({ error: 'Cannot revert paid invoices' });
+    }
+    
+    // Detach all entries from this invoice
+    await db.run(
+      'UPDATE entries SET invoice_id = NULL WHERE invoice_id = ?',
+      [id]
+    );
+    
+    // Update invoice status to draft
+    await db.run(
+      'UPDATE invoices SET status = ?, approved_at = NULL WHERE id = ?',
+      ['draft', id]
+    );
+    
+    // Log the action
+    await db.run(
+      'INSERT INTO audit_log (user_id, action, details) VALUES (?, ?, ?)',
+      [req.user.id, 'INVOICE_REVERTED', `Invoice ${id} reverted to draft, entries detached`]
+    );
+    
+    // Get updated invoice
+    const updatedInvoice = await db.get(
+      `SELECT i.*, u.name as user_name, i.user_id as userId
+       FROM invoices i 
+       JOIN users u ON i.user_id = u.id 
+       WHERE i.id = ?`,
+      [id]
+    );
+    
+    res.json(updatedInvoice);
+  } catch (error) {
+    console.error('Error reverting invoice:', error);
+    res.status(500).json({ error: 'Failed to revert invoice' });
   }
 });
 
