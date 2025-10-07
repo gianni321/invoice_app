@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Clock, Download, Lock, Home, Plus, Trash2, PencilLine, Check, X, FileText, CheckCircle, DollarSign, AlertCircle } from 'lucide-react';
 import { api, getAuthHeaders, setAuthToken, clearAuthToken } from './config';
+import { DeadlineWarningBanner } from './components/DeadlineStatus';
 
 // Format currency
 const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
@@ -310,67 +311,220 @@ export default function App() {
   const submit = useCallback(async () => {
     // Since entries now only contains open entries, check if any exist
     const myOpenEntries = entries.filter(e => e.userId === user?.id);
-    if (!myOpenEntries.length) return alert('No open entries');
+    if (!myOpenEntries.length) return alert('No open entries for current period');
 
     try {
-      const response = await fetch(api.invoices.submit(), {
-        method: 'POST',
-        headers: getAuthHeaders()
-      });
+      console.log('Submitting invoice...');
+      
+      const operation = async () => {
+        const response = await fetch(api.invoices.submit(), {
+          method: 'POST',
+          headers: getAuthHeaders()
+        });
 
-      if (!response.ok) {
-        throw new Error('Failed to submit invoice');
-      }
+        console.log(`Submit response status: ${response.status}`);
 
-      const invoice = await response.json();
+        if (!response.ok) {
+          // Get detailed error message from server
+          let errorMessage = 'Failed to submit invoice';
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorMessage;
+            console.error('Server error details:', errorData);
+          } catch (parseError) {
+            console.error('Could not parse error response:', parseError);
+          }
+          throw new Error(errorMessage);
+        }
+
+        return await response.json();
+      };
+
+      const invoice = await retryOperation(operation);
+      console.log('Invoice submitted successfully:', invoice);
       
       // Remove submitted entries from the entries list since they're no longer open
       setEntries(entries => entries.filter(e => !myOpenEntries.find(oe => oe.id === e.id)));
       setInvoices(invoices => [invoice, ...invoices]);
-      alert('Invoice submitted successfully!');
+      
+      alert(`Invoice submitted successfully! Invoice #${invoice.id} for $${invoice.total.toFixed(2)}`);
     } catch (error) {
       console.error('Error submitting invoice:', error);
-      alert('Failed to submit invoice');
+      
+      // More detailed error messages
+      let userMessage;
+      if (error.message === 'Failed to fetch') {
+        userMessage = 'Network error: Could not connect to server. Please check your connection and try again.';
+      } else if (error.message.includes('already submitted')) {
+        userMessage = 'Invoice already submitted for this period. Please wait for the next billing period.';
+      } else if (error.message.includes('No open entries')) {
+        userMessage = 'No open entries found for the current billing period.';
+      } else {
+        userMessage = `Failed to submit invoice: ${error.message}`;
+      }
+      
+      alert(userMessage);
+      
+      // Refresh data to ensure UI is in sync
+      try {
+        await Promise.all([fetchEntries(), fetchInvoices()]);
+      } catch (refreshError) {
+        console.error('Failed to refresh data after error:', refreshError);
+      }
     }
-  }, [entries, user]);
+  }, [entries, user, fetchEntries, fetchInvoices]);
 
   const approve = useCallback(async id => {
     try {
-      const response = await fetch(api.invoices.approve(id), {
-        method: 'POST',
-        headers: getAuthHeaders()
-      });
+      console.log(`Attempting to approve invoice ${id}...`);
+      
+      const operation = async () => {
+        const response = await fetch(api.invoices.approve(id), {
+          method: 'POST',
+          headers: getAuthHeaders()
+        });
 
-      if (!response.ok) {
-        throw new Error('Failed to approve invoice');
-      }
+        console.log(`Approve response status: ${response.status}`);
 
-      const updatedInvoice = await response.json();
+        if (!response.ok) {
+          // Get detailed error message from server
+          let errorMessage = 'Failed to approve invoice';
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorMessage;
+            console.error('Server error details:', errorData);
+          } catch (parseError) {
+            console.error('Could not parse error response:', parseError);
+          }
+          throw new Error(errorMessage);
+        }
+
+        return await response.json();
+      };
+
+      const updatedInvoice = await retryOperation(operation);
+      console.log('Invoice approved successfully:', updatedInvoice);
+      
+      // Update local state
       setInvoices(invoices => invoices.map(i => i.id === id ? updatedInvoice : i));
+      
+      // Show success message
+      alert(`Invoice #${id} approved successfully!`);
+      
     } catch (error) {
       console.error('Error approving invoice:', error);
-      alert('Failed to approve invoice');
+      
+      // More detailed error message for user
+      let userMessage;
+      if (error.message === 'Failed to fetch') {
+        userMessage = 'Network error: Could not connect to server. Please check your connection and try again.';
+      } else if (error.message.includes('already approved')) {
+        userMessage = 'This invoice is already approved.';
+      } else if (error.message.includes('Invoice not found')) {
+        userMessage = 'Invoice not found. It may have been deleted.';
+      } else {
+        userMessage = `Failed to approve invoice: ${error.message}`;
+      }
+      
+      alert(userMessage);
+      
+      // Optional: Refresh invoice list to ensure UI is in sync
+      try {
+        await fetchInvoices();
+      } catch (refreshError) {
+        console.error('Failed to refresh invoices after error:', refreshError);
+      }
     }
-  }, []);
+  }, [fetchInvoices]);
+
+  // Helper function for retrying API calls
+  const retryOperation = async (operation, maxRetries = 2, delay = 1000) => {
+    for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        if (attempt === maxRetries + 1) {
+          throw error; // Final attempt failed
+        }
+        
+        // Check if it's a retryable error
+        const isRetryable = error.message === 'Failed to fetch' || 
+                           error.message.includes('temporarily unavailable') ||
+                           error.message.includes('timeout');
+        
+        if (!isRetryable) {
+          throw error; // Don't retry for non-transient errors
+        }
+        
+        console.log(`Attempt ${attempt} failed, retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay *= 1.5; // Exponential backoff
+      }
+    }
+  };
 
   const markPaid = useCallback(async id => {
     try {
-      const response = await fetch(api.invoices.markPaid(id), {
-        method: 'POST',
-        headers: getAuthHeaders()
-      });
+      console.log(`Attempting to mark invoice ${id} as paid...`);
+      
+      const operation = async () => {
+        const response = await fetch(api.invoices.markPaid(id), {
+          method: 'POST',
+          headers: getAuthHeaders()
+        });
 
-      if (!response.ok) {
-        throw new Error('Failed to mark invoice as paid');
-      }
+        console.log(`Mark paid response status: ${response.status}`);
 
-      const updatedInvoice = await response.json();
+        if (!response.ok) {
+          // Get detailed error message from server
+          let errorMessage = 'Failed to mark invoice as paid';
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorMessage;
+            console.error('Server error details:', errorData);
+          } catch (parseError) {
+            console.error('Could not parse error response:', parseError);
+          }
+          throw new Error(errorMessage);
+        }
+
+        return await response.json();
+      };
+
+      const updatedInvoice = await retryOperation(operation);
+      console.log('Invoice marked as paid successfully:', updatedInvoice);
+      
+      // Update local state
       setInvoices(invoices => invoices.map(i => i.id === id ? updatedInvoice : i));
+      
+      // Show success message
+      alert(`Invoice #${id} marked as paid successfully!`);
+      
     } catch (error) {
       console.error('Error marking invoice as paid:', error);
-      alert('Failed to mark invoice as paid');
+      
+      // More detailed error message for user
+      let userMessage;
+      if (error.message === 'Failed to fetch') {
+        userMessage = 'Network error: Could not connect to server. Please check your connection and try again.';
+      } else if (error.message.includes('already marked as paid')) {
+        userMessage = 'This invoice is already marked as paid.';
+      } else if (error.message.includes('Invoice not found')) {
+        userMessage = 'Invoice not found. It may have been deleted.';
+      } else {
+        userMessage = `Failed to mark invoice as paid: ${error.message}`;
+      }
+      
+      alert(userMessage);
+      
+      // Optional: Refresh invoice list to ensure UI is in sync
+      try {
+        await fetchInvoices();
+      } catch (refreshError) {
+        console.error('Failed to refresh invoices after error:', refreshError);
+      }
     }
-  }, []);
+  }, [fetchInvoices]);
 
   const download = inv => {
     const invEntries = inv.entries || [];  // Changed from entries.filter(e => inv.entryIds.includes(e.id))
@@ -653,6 +807,10 @@ export default function App() {
           </div>
           <button onClick={logout} className="bg-gray-700 text-white px-4 py-2 rounded-lg">Logout</button>
         </div>
+        
+        {/* Warning banner for approaching/late deadlines */}
+        <DeadlineWarningBanner userId={user.id} />
+        
         <div className="grid lg:grid-cols-2 gap-4 mb-6">
           <div className="bg-white p-6 rounded-xl">
             <h2 className="text-xl font-bold mb-4 flex items-center gap-2">

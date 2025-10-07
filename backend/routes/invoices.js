@@ -2,7 +2,7 @@ const express = require('express');
 const db = require('../database');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
 const { getInvoiceSettings } = require('../lib/settings');
-const { getDueDatetimes, periodBounds, statusFor } = require('../lib/deadlines');
+const { getDueDatetimes, periodBounds, statusFor, currentPeriod, dueForPeriod, ZONE } = require('../lib/deadlines');
 const { notifyAdminsOnSubmit, notifyUserOnPaid } = require('../lib/invoiceNotify');
 const { fmtCurrency } = require('../lib/format');
 
@@ -12,19 +12,24 @@ const router = express.Router();
 router.get('/deadline-status', authenticateToken, async (req, res) => {
   try {
     const s = await getInvoiceSettings();
-    const { now, last, next } = getDueDatetimes({
-      weekday: s.weekday,
-      hour: s.hour,
-      minute: s.minute,
-      zone: s.zone
-    });
-    const { period_start, period_end } = periodBounds({ lastDue: last, nextDue: next });
+    const now = require('luxon').DateTime.now().setZone(ZONE);
+    
+    // Get current work week period (Mon 12:01 AM → Sun 11:59 PM)
+    const period = currentPeriod(now);
+    const due = dueForPeriod(period.end); // Tuesday 11:59 PM after Sunday
+    
+    const period_start = period.start.toISO();
+    const period_end = period.end.toISO();
 
-    // find most recent invoice per user for this period
-    const users = await db.query('SELECT id, name FROM users');
+    // For members, only return their own status; for admins, return all users
+    const users = req.user.role === 'admin' 
+      ? await db.query('SELECT id, name FROM users')
+      : [{ id: req.user.id, name: req.user.name }];
+    
     const statuses = [];
 
     for (const u of users) {
+      // Check if user has submitted invoice for current period
       const inv = await db.get(
         `SELECT id FROM invoices 
          WHERE user_id=? AND period_start=? AND period_end=? LIMIT 1`,
@@ -32,14 +37,15 @@ router.get('/deadline-status', authenticateToken, async (req, res) => {
       );
       
       const submitted = !!inv;
-      const st = submitted ? 'ok' : statusFor(now, next, s.warnWindowHours);
+      const st = submitted ? 'ok' : statusFor(now, due, s.warnWindowHours);
       let message = null;
 
+      // Only show warning messages if no invoice submitted for this period
       if (!submitted) {
         if (st === 'approaching') {
-          message = `Invoice due ${next.setZone(s.zone).toFormat("ccc, LLL d @ hh:mm a z")}. Please submit.`;
+          message = `Invoice due ${due.setZone(ZONE).toFormat("ccc, LLL d @ hh:mm a z")}. Please submit.`;
         } else if (st === 'late') {
-          message = `Invoice is late (due ${next.setZone(s.zone).toFormat("ccc, LLL d @ hh:mm a z")}). Payment may be delayed.`;
+          message = `Invoice is late (due ${due.setZone(ZONE).toFormat("ccc, LLL d @ hh:mm a z")}). Payment may be delayed.`;
         }
       }
 
@@ -48,15 +54,24 @@ router.get('/deadline-status', authenticateToken, async (req, res) => {
         userName: u.name,
         submitted,
         status: st,
-        deadline_iso: next.toUTC().toISO(),
-        deadline_local: next.setZone(s.zone).toISO(),
+        deadline_iso: due.toUTC().toISO(),
+        deadline_local: due.setZone(ZONE).toISO(),
         period_start,
         period_end,
         message
       });
     }
 
-    res.json({ zone: s.zone, warnWindowHours: s.warnWindowHours, statuses });
+    res.json({ 
+      zone: ZONE, 
+      warnWindowHours: s.warnWindowHours, 
+      statuses,
+      currentPeriod: {
+        start: period_start,
+        end: period_end,
+        due: due.toISO()
+      }
+    });
   } catch (error) {
     console.error('Error getting deadline status:', error);
     res.status(500).json({ error: 'Failed to get deadline status' });
@@ -336,16 +351,34 @@ router.post('/:id/paid', authenticateToken, requireAdmin, async (req, res) => {
     const { id } = req.params;
     const now = new Date().toISOString();
 
+    // First check if invoice exists and can be marked as paid
+    const existingInvoice = await db.get('SELECT id, status, user_id FROM invoices WHERE id = ?', [id]);
+    if (!existingInvoice) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    if (existingInvoice.status === 'paid') {
+      return res.status(400).json({ error: 'Invoice is already marked as paid' });
+    }
+
+    // Update invoice status to paid (main operation)
     await db.run(
       'UPDATE invoices SET status = ?, paid_at = ?, paid_by_user_id = ? WHERE id = ?',
       ['paid', now, req.user.id, id]
     );
 
-    await db.run(
-      'INSERT INTO audit_log (user_id, action, details) VALUES (?, ?, ?)',
-      [req.user.id, 'INVOICE_PAID', `Invoice ${id} marked as paid`]
-    );
+    // Add audit log entry
+    try {
+      await db.run(
+        'INSERT INTO audit_log (user_id, action, details) VALUES (?, ?, ?)',
+        [req.user.id, 'INVOICE_PAID', `Invoice ${id} marked as paid`]
+      );
+    } catch (auditError) {
+      console.error('Warning: Failed to write audit log:', auditError);
+      // Don't fail the main operation for audit log issues
+    }
 
+    // Fetch complete invoice data
     const invoice = await db.get(`
       SELECT i.*, u.name as user_name, u.email as user_email, i.user_id as userId
       FROM invoices i 
@@ -354,39 +387,65 @@ router.post('/:id/paid', authenticateToken, requireAdmin, async (req, res) => {
       [id]
     );
 
-    // Send email notification to user
-    try {
-      const member = {
-        name: invoice.user_name,
-        email: invoice.user_email
-      };
-
-      const payer = await db.get('SELECT name FROM users WHERE id = ?', [req.user.id]);
-
-      await notifyUserOnPaid({
-        invoice: { 
-          id: invoice.id, 
-          total_formatted: fmtCurrency(invoice.total), 
-          paid_at: now 
-        },
-        user: member,
-        paidBy: payer
-      });
-
-      // Log email sent
-      await db.run(
-        'INSERT INTO email_log (type, invoice_id, to_email, sent_at) VALUES (?, ?, ?, ?)',
-        ['paid_user', id, invoice.user_email, now]
-      );
-    } catch (emailError) {
-      // Log email error but don't fail the request
-      console.error('Error sending payment notification:', emailError);
+    if (!invoice) {
+      console.error('Warning: Could not fetch updated invoice data');
+      return res.status(500).json({ error: 'Invoice updated but could not retrieve data' });
     }
 
+    // Send email notification to user (non-blocking)
+    setImmediate(async () => {
+      try {
+        const member = {
+          name: invoice.user_name,
+          email: invoice.user_email
+        };
+
+        const payer = await db.get('SELECT name FROM users WHERE id = ?', [req.user.id]);
+
+        await notifyUserOnPaid({
+          invoice: { 
+            id: invoice.id, 
+            total_formatted: fmtCurrency(invoice.total), 
+            paid_at: now 
+          },
+          user: member,
+          paidBy: payer
+        });
+
+        // Log email sent
+        await db.run(
+          'INSERT INTO email_log (type, invoice_id, to_email, sent_at) VALUES (?, ?, ?, ?)',
+          ['paid_user', id, invoice.user_email, now]
+        );
+        
+        console.log(`Payment notification sent successfully for invoice ${id}`);
+      } catch (emailError) {
+        // Log email error but don't fail the main operation
+        console.error('Warning: Failed to send payment notification:', emailError);
+        try {
+          await db.run(
+            'INSERT INTO audit_log (user_id, action, details) VALUES (?, ?, ?)',
+            [req.user.id, 'EMAIL_FAILED', `Failed to send payment notification for invoice ${id}: ${emailError.message}`]
+          );
+        } catch (logError) {
+          console.error('Warning: Failed to log email error:', logError);
+        }
+      }
+    });
+
+    // Return success immediately (don't wait for email)
     res.json(invoice);
   } catch (error) {
     console.error('Error marking invoice as paid:', error);
-    res.status(500).json({ error: 'Failed to mark invoice as paid' });
+    
+    // Provide more specific error messages
+    if (error.message.includes('FOREIGN KEY constraint failed')) {
+      res.status(400).json({ error: 'Invalid user or invoice reference' });
+    } else if (error.message.includes('database is locked')) {
+      res.status(503).json({ error: 'Database temporarily unavailable, please try again' });
+    } else {
+      res.status(500).json({ error: 'Failed to mark invoice as paid', details: error.message });
+    }
   }
 });
 
