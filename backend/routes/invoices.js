@@ -8,6 +8,40 @@ const { fmtCurrency } = require('../lib/format');
 
 const router = express.Router();
 
+// Helper function for reverting invoice to draft (shared between admin revert and member withdraw)
+async function revertInvoiceToDraft(invoiceId, actionUserId, actionType) {
+  // Detach all entries from this invoice
+  await db.run(
+    'UPDATE entries SET invoice_id = NULL WHERE invoice_id = ?',
+    [invoiceId]
+  );
+  
+  // Update invoice status to draft
+  await db.run(
+    'UPDATE invoices SET status = ?, approved_at = NULL WHERE id = ?',
+    ['draft', invoiceId]
+  );
+  
+  // Log the action
+  const actionName = actionType === 'withdraw' ? 'INVOICE_WITHDRAWN' : 'INVOICE_REVERTED';
+  const actionDesc = actionType === 'withdraw' ? 'withdrawn by member' : 'reverted to draft';
+  await db.run(
+    'INSERT INTO audit_log (user_id, action, details) VALUES (?, ?, ?)',
+    [actionUserId, actionName, `Invoice ${invoiceId} ${actionDesc}, entries detached`]
+  );
+  
+  // Get updated invoice
+  const updatedInvoice = await db.get(
+    `SELECT i.*, u.name as user_name, i.user_id as userId
+     FROM invoices i 
+     JOIN users u ON i.user_id = u.id 
+     WHERE i.id = ?`,
+    [invoiceId]
+  );
+  
+  return updatedInvoice;
+}
+
 // Get deadline status
 router.get('/deadline-status', authenticateToken, async (req, res) => {
   try {
@@ -508,6 +542,40 @@ router.get('/:id/entries', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching invoice entries:', error);
     res.status(500).json({ error: 'Failed to fetch invoice entries' });
+  }
+});
+
+// Withdraw submitted invoice (member only) - allows member to withdraw their own submitted invoice
+router.post('/:id/withdraw', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Get current invoice
+    const invoice = await db.get('SELECT * FROM invoices WHERE id = ?', [id]);
+    if (!invoice) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+    
+    // Verify the user owns this invoice
+    if (invoice.user_id !== req.user.id) {
+      return res.status(403).json({ error: 'You can only withdraw your own invoices' });
+    }
+    
+    // Can only withdraw submitted invoices
+    if (invoice.status !== 'submitted') {
+      return res.status(400).json({ error: 'Only submitted invoices can be withdrawn' });
+    }
+    
+    // Use shared helper function
+    const updatedInvoice = await revertInvoiceToDraft(id, req.user.id, 'withdraw');
+    
+    res.json({
+      message: 'Invoice withdrawn successfully',
+      invoice: updatedInvoice
+    });
+  } catch (error) {
+    console.error('Error withdrawing invoice:', error);
+    res.status(500).json({ error: 'Failed to withdraw invoice' });
   }
 });
 

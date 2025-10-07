@@ -384,6 +384,43 @@ export default function App() {
     }
   }, [entries, user, fetchData]);
 
+  const withdraw = useCallback(async (invoiceId) => {
+    try {
+      if (!confirm('Are you sure you want to withdraw this invoice? The entries will be moved back to your open entries.')) {
+        return;
+      }
+
+      console.log(`Withdrawing invoice ${invoiceId}...`);
+      
+      const response = await fetch(api.invoices.withdraw(invoiceId), {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+
+      if (!response.ok) {
+        let errorMessage = 'Failed to withdraw invoice';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (parseError) {
+          console.error('Could not parse error response:', parseError);
+        }
+        throw new Error(errorMessage);
+      }
+
+      const result = await response.json();
+      console.log('Invoice withdrawn successfully:', result);
+      
+      // Refresh all data to update entries and invoices
+      await fetchData();
+      
+      alert('Invoice withdrawn successfully! The entries have been moved back to your open entries.');
+    } catch (error) {
+      console.error('Error withdrawing invoice:', error);
+      alert(`Failed to withdraw invoice: ${error.message}`);
+    }
+  }, [fetchData]);
+
   const approve = useCallback(async id => {
     try {
       console.log(`Attempting to approve invoice ${id}...`);
@@ -1100,9 +1137,17 @@ export default function App() {
                               SUBMITTED
                             </span>
                           </div>
-                          <button onClick={() => setViewInvoice(inv)} className="text-blue-600 text-sm hover:underline">
-                            View Details & Entries
-                          </button>
+                          <div className="flex gap-2">
+                            <button onClick={() => setViewInvoice(inv)} className="text-blue-600 text-sm hover:underline">
+                              View Details & Entries
+                            </button>
+                            <button 
+                              onClick={() => withdraw(inv.id)} 
+                              className="text-red-600 text-sm hover:underline font-medium"
+                            >
+                              Withdraw
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>

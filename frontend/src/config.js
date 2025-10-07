@@ -17,6 +17,7 @@ export const api = {
     submit: () => `${API_URL}/invoices/submit`,
     approve: (id) => `${API_URL}/invoices/${id}/approve`,
     markPaid: (id) => `${API_URL}/invoices/${id}/paid`,
+    withdraw: (id) => `${API_URL}/invoices/${id}/withdraw`,
     deadlineStatus: () => `${API_URL}/invoices/deadline-status`,
     entries: (id) => `${API_URL}/invoices/${id}/entries`,
     revertToDraft: (id) => `${API_URL}/invoices/${id}/revert-to-draft`,
