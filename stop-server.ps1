@@ -11,10 +11,10 @@ try {
         # Also free up the ports
         Start-Sleep -Seconds 2
         
-        # Check port 3000
-        $port3000 = netstat -ano | Select-String ":3000.*LISTENING"
-        if ($port3000) {
-            $processId = ($port3000 -split '\s+')[-1]
+        # Check port 3001
+        $port3001 = netstat -ano | Select-String ":3001.*LISTENING"
+        if ($port3001) {
+            $processId = ($port3001 -split '\s+')[-1]
             Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
         }
         
@@ -25,7 +25,7 @@ try {
             Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
         }
         
-        Write-Host "🔓 Ports 3000 and 5173 have been freed" -ForegroundColor Green
+        Write-Host "🔓 Ports 3001 and 5173 have been freed" -ForegroundColor Green
     } else {
         Write-Host "ℹ️  No Node.js processes found" -ForegroundColor Cyan
     }

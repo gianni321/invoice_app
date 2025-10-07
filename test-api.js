@@ -40,7 +40,7 @@ async function testLogin() {
   console.log('Testing login...');
   const loginOptions = {
     hostname: 'localhost',
-    port: 3000,
+    port: 3001,
     path: '/api/auth/login',
     method: 'POST',
     headers: {
@@ -64,7 +64,7 @@ async function testInvoiceSubmission(token) {
   console.log('\nTesting invoice submission...');
   const submitOptions = {
     hostname: 'localhost',
-    port: 3000,
+    port: 3001,
     path: '/api/invoices/submit',
     method: 'POST',
     headers: {
