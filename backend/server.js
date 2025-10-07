@@ -7,54 +7,63 @@ const authRoutes = require('./routes/auth');
 const entryRoutes = require('./routes/entries');
 const invoiceRoutes = require('./routes/invoices');
 const adminRoutes = require('./routes/admin');
+const logger = require('./lib/logger');
+const SecurityConfig = require('./lib/security');
+const { 
+  requestId, 
+  requestLogging, 
+  performanceMonitoring, 
+  errorLogging, 
+  notFoundHandler 
+} = require('./middleware/logging');
+
+// Validate security configuration
+SecurityConfig.validateEnvironment();
 
 // Validate JWT Secret
 if (!process.env.JWT_SECRET || /change_this|^.{0,31}$/.test(process.env.JWT_SECRET)) {
-  console.error('Error: JWT_SECRET is missing or weak. It should be at least 32 characters.');
+  logger.error('JWT_SECRET is missing or weak. It should be at least 32 characters.');
   process.exit(1);
 }
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Security middleware
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      connectSrc: ["'self'", "http://localhost:3001", "http://localhost:5173"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "blob:"],
-      fontSrc: ["'self'"],
-    },
-  },
-  crossOriginEmbedderPolicy: false
-}));
+// Log environment info
+logger.info('Starting server', SecurityConfig.getEnvironmentInfo());
 
-const allowed = ['http://localhost:5173', 'http://localhost:3001'];
+// Security middleware
+app.use(helmet(SecurityConfig.getSecurityHeaders()));
+
+// Parse CORS origins from environment variable
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
+  : ['http://localhost:5173', 'http://localhost:3001'];
+
 app.use(cors({
-  origin: allowed,
+  origin: allowedOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 // Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
-});
+const limiter = rateLimit(SecurityConfig.getRateLimitConfig());
 app.use('/api/auth', limiter);
 
 // Middleware
 app.use(express.json());
 
-// Request logging
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-  next();
-});
+// Request ID and logging middleware
+app.use(requestId);
+app.use(requestLogging);
+app.use(performanceMonitoring);
+
+// Request logging (replaced the previous simple logging)
+// app.use((req, res, next) => {
+//   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+//   next();
+// });
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -64,47 +73,35 @@ app.use('/api/admin', adminRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
+  logger.info('Health check requested', { requestId: req.requestId });
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// Add this before error handling middleware
-app.use((req, res, next) => {
-  if (req.path.includes('/.well-known/')) {
-    return res.status(404).json({ error: 'Not found' });
-  }
-  next();
-});
-
-// Add this after your routes but before error handling
-app.use('*', (req, res) => {
-  res.status(404).json({ error: 'Not found' });
-});
+// Replace the previous route handlers
+app.use('*', notFoundHandler);
 
 // Error handling
-app.use((err, req, res, next) => {
-  console.error('Server error:', err);
-  res.status(500).json({ error: 'Internal server error' });
-});
+app.use(errorLogging);
 
 const server = app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log(`📊 API available at http://localhost:${PORT}/api`);
+  logger.info(`🚀 Server running on http://localhost:${PORT}`);
+  logger.info(`📊 API available at http://localhost:${PORT}/api`);
 });
 
 // Handle server shutdown
 process.on('SIGTERM', () => {
-  console.info('SIGTERM signal received. Closing server...');
+  logger.info('SIGTERM signal received. Closing server...');
   server.close(() => {
-    console.log('Server closed');
+    logger.info('Server closed');
     process.exit(0);
   });
 });
 
 // Handle uncaught errors
 process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
+  logger.error('Uncaught Exception:', { error: error.message, stack: error.stack });
   server.close(() => {
-    console.log('Server closed due to error');
+    logger.info('Server closed due to error');
     process.exit(1);
   });
 });
