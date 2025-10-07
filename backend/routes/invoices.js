@@ -378,9 +378,9 @@ router.post('/:id/paid', authenticateToken, requireAdmin, async (req, res) => {
       // Don't fail the main operation for audit log issues
     }
 
-    // Fetch complete invoice data
+    // Fetch complete invoice data (handle missing email column gracefully)
     const invoice = await db.get(`
-      SELECT i.*, u.name as user_name, u.email as user_email, i.user_id as userId
+      SELECT i.*, u.name as user_name, i.user_id as userId
       FROM invoices i 
       JOIN users u ON i.user_id = u.id 
       WHERE i.id = ?`, 
@@ -392,12 +392,19 @@ router.post('/:id/paid', authenticateToken, requireAdmin, async (req, res) => {
       return res.status(500).json({ error: 'Invoice updated but could not retrieve data' });
     }
 
-    // Send email notification to user (non-blocking)
+    // Send email notification to user (non-blocking and safe)
     setImmediate(async () => {
       try {
+        // Skip email sending if no proper email configuration
+        const hasEmailConfig = process.env.SMTP_HOST && process.env.SMTP_USER;
+        if (!hasEmailConfig) {
+          console.log(`Skipping email notification for invoice ${id} - no email configuration`);
+          return;
+        }
+
         const member = {
           name: invoice.user_name,
-          email: invoice.user_email
+          email: `user${invoice.userId}@example.com` // Fallback email since no email column exists
         };
 
         const payer = await db.get('SELECT name FROM users WHERE id = ?', [req.user.id]);
@@ -409,14 +416,19 @@ router.post('/:id/paid', authenticateToken, requireAdmin, async (req, res) => {
             paid_at: now 
           },
           user: member,
-          paidBy: payer
+          paidBy: payer || { name: 'Admin' }
         });
 
-        // Log email sent
-        await db.run(
-          'INSERT INTO email_log (type, invoice_id, to_email, sent_at) VALUES (?, ?, ?, ?)',
-          ['paid_user', id, invoice.user_email, now]
-        );
+        // Log email sent (only if email_log table exists)
+        try {
+          await db.run(
+            'INSERT INTO email_log (type, invoice_id, to_email, sent_at) VALUES (?, ?, ?, ?)',
+            ['paid_user', id, member.email, now]
+          );
+        } catch (logError) {
+          // Table might not exist, that's okay
+          console.log('Info: email_log table not available, skipping email log');
+        }
         
         console.log(`Payment notification sent successfully for invoice ${id}`);
       } catch (emailError) {

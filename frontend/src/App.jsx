@@ -139,8 +139,8 @@ export default function App() {
       const openEntriesData = await openEntriesResponse.json();
       const invoicesData = await invoicesResponse.json();
 
-      setEntries(openEntriesData); // Now this contains only open entries
-      setInvoices(invoicesData);
+      setEntries(Array.isArray(openEntriesData) ? openEntriesData : []); // Now this contains only open entries
+      setInvoices(Array.isArray(invoicesData) ? invoicesData : []);
     } catch (error) {
       console.error('Error fetching data:', error);
       alert('Failed to load data');
@@ -367,12 +367,12 @@ export default function App() {
       
       // Refresh data to ensure UI is in sync
       try {
-        await Promise.all([fetchEntries(), fetchInvoices()]);
+        await fetchData();
       } catch (refreshError) {
         console.error('Failed to refresh data after error:', refreshError);
       }
     }
-  }, [entries, user, fetchEntries, fetchInvoices]);
+  }, [entries, user, fetchData]);
 
   const approve = useCallback(async id => {
     try {
@@ -430,12 +430,12 @@ export default function App() {
       
       // Optional: Refresh invoice list to ensure UI is in sync
       try {
-        await fetchInvoices();
+        await fetchData();
       } catch (refreshError) {
         console.error('Failed to refresh invoices after error:', refreshError);
       }
     }
-  }, [fetchInvoices]);
+  }, [fetchData]);
 
   // Helper function for retrying API calls
   const retryOperation = async (operation, maxRetries = 2, delay = 1000) => {
@@ -488,11 +488,27 @@ export default function App() {
           throw new Error(errorMessage);
         }
 
-        return await response.json();
+        // Parse the successful response
+        let responseData;
+        try {
+          responseData = await response.json();
+          console.log('Parsed response data:', responseData);
+        } catch (parseError) {
+          console.error('Could not parse success response JSON:', parseError);
+          throw new Error('Server returned invalid response format');
+        }
+
+        return responseData;
       };
 
       const updatedInvoice = await retryOperation(operation);
       console.log('Invoice marked as paid successfully:', updatedInvoice);
+      
+      // Validate that we received a proper invoice object
+      if (!updatedInvoice || !updatedInvoice.id) {
+        console.error('Invalid response data:', updatedInvoice);
+        throw new Error('Server returned invalid invoice data');
+      }
       
       // Update local state
       setInvoices(invoices => invoices.map(i => i.id === id ? updatedInvoice : i));
@@ -511,6 +527,8 @@ export default function App() {
         userMessage = 'This invoice is already marked as paid.';
       } else if (error.message.includes('Invoice not found')) {
         userMessage = 'Invoice not found. It may have been deleted.';
+      } else if (error.message.includes('invalid response')) {
+        userMessage = 'Server error: Invalid response format. The operation may have succeeded - please refresh the page.';
       } else {
         userMessage = `Failed to mark invoice as paid: ${error.message}`;
       }
@@ -519,12 +537,12 @@ export default function App() {
       
       // Optional: Refresh invoice list to ensure UI is in sync
       try {
-        await fetchInvoices();
+        await fetchData();
       } catch (refreshError) {
         console.error('Failed to refresh invoices after error:', refreshError);
       }
     }
-  }, [fetchInvoices]);
+  }, [fetchData]);
 
   const download = inv => {
     const invEntries = inv.entries || [];  // Changed from entries.filter(e => inv.entryIds.includes(e.id))
@@ -678,7 +696,7 @@ export default function App() {
   }, [user, fetchData]);
 
   const myEntries = useMemo(() => entries.filter(e => e.userId === user?.id), [entries, user]);
-  const openEntries = useMemo(() => myEntries, [myEntries]); // entries now only contains open entries
+  const openEntries = useMemo(() => Array.isArray(myEntries) ? myEntries : [], [myEntries]); // entries now only contains open entries
   const myInvoices = useMemo(() => invoices.filter(i => i.userId === user?.id), [invoices, user]);
   const pendingInv = useMemo(() => myInvoices.filter(i => i.status === 'submitted'), [myInvoices]);
   const approvedInv = useMemo(() => myInvoices.filter(i => i.status === 'approved' || i.status === 'paid'), [myInvoices]);
@@ -874,10 +892,10 @@ export default function App() {
             <div className="bg-white p-4 rounded-xl">
               <h3 className="font-bold mb-2">Current Week</h3>
               <p className="text-3xl font-bold text-blue-600">
-                {openEntries.reduce((s, e) => s + e.hours, 0).toFixed(1)} hrs
+                {(openEntries.reduce((s, e) => s + (Number(e.hours) || 0), 0) || 0).toFixed(1)} hrs
               </p>
               <p className="text-lg text-green-600">
-                {fmt.format(openEntries.reduce((s, e) => s + e.hours * e.rate, 0))}
+                {fmt.format(openEntries.reduce((s, e) => s + ((Number(e.hours) || 0) * (Number(e.rate) || 0)), 0) || 0)}
               </p>
               <button onClick={submit} className="w-full mt-3 bg-green-600 text-white py-2 rounded-lg">
                 <FileText size={16} className="inline mr-2" /> Submit Invoice
@@ -916,8 +934,8 @@ export default function App() {
 
               return sortedDates.map(dateKey => {
                 const dateEntries = groupedByDate[dateKey];
-                const dayTotal = dateEntries.reduce((sum, e) => sum + (e.hours * e.rate), 0);
-                const dayHours = dateEntries.reduce((sum, e) => sum + e.hours, 0);
+                const dayTotal = dateEntries.reduce((sum, e) => sum + ((Number(e.hours) || 0) * (Number(e.rate) || 0)), 0);
+                const dayHours = dateEntries.reduce((sum, e) => sum + (Number(e.hours) || 0), 0);
                 
                 return (
                   <div key={dateKey} className="border rounded-lg overflow-hidden">
