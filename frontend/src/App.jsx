@@ -149,6 +149,9 @@ export default function App() {
 
   const login = useCallback(async () => {
     try {
+      console.log('Attempting login with PIN:', pin);
+      console.log('Login URL:', api.auth.login());
+      
       const response = await fetch(`${api.auth.login()}`, {
         method: 'POST',
         headers: {
@@ -157,11 +160,17 @@ export default function App() {
         body: JSON.stringify({ pin })
       });
 
+      console.log('Response status:', response.status);
+      console.log('Response ok:', response.ok);
+
       if (!response.ok) {
+        const errorText = await response.text();
+        console.log('Error response:', errorText);
         throw new Error('Login failed');
       }
 
       const data = await response.json();
+      console.log('Login successful, data:', data);
       setAuthToken(data.token);
       setUser(data.user);
       setAdmin(data.user.role === 'admin');
@@ -172,7 +181,7 @@ export default function App() {
       await fetchData();
     } catch (error) {
       console.error('Login error:', error);
-      setErr('Invalid PIN');
+      setErr('Invalid PIN - Check console for details');
     }
   }, [pin, fetchData]);
 

@@ -8,10 +8,10 @@
     "react-dom": "^18.2.0"
   },
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "vite --port 3000 --host 0.0.0.0",
+    "build": "vite build", 
     "preview": "vite preview",
-    "start": "concurrently \"cd backend && npm start\" \"npm run dev\"",
+    "start": "node run-simple.js",
     "install-all": "npm install && cd backend && npm install"
   },
   "devDependencies": {
