@@ -629,4 +629,148 @@ router.post('/:id/revert-to-draft', authenticateToken, requireAdmin, async (req,
   }
 });
 
+// Export invoice as PDF
+router.get('/:id/export/pdf', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log('PDF Export: Starting for invoice ID:', id);
+    
+    // Get invoice with entries
+    const invoice = await db.get(`
+      SELECT i.*, u.name as user_name, u.rate
+      FROM invoices i 
+      JOIN users u ON i.user_id = u.id 
+      WHERE i.id = ?
+    `, [id]);
+    
+    console.log('PDF Export: Retrieved invoice:', invoice);
+    
+    if (!invoice) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+    
+    // Check if user owns this invoice (members can only export their own)
+    if (req.user.role !== 'admin' && invoice.user_id !== req.user.id) {
+      return res.status(403).json({ error: 'You can only export your own invoices' });
+    }
+    
+    // Get invoice entries
+    const entries = await db.query(`
+      SELECT e.*, u.name as user_name 
+      FROM entries e 
+      JOIN users u ON e.user_id = u.id 
+      WHERE e.invoice_id = ? 
+      ORDER BY e.date DESC
+    `, [id]);
+    
+    // For now, return CSV content formatted for PDF until we properly configure html-pdf-node
+    // This is a temporary solution that provides the data in a downloadable format
+    
+    // Create text content that would be in the PDF
+    let pdfTextContent = `INVOICE REPORT\n\n`;
+    pdfTextContent += `Invoice #: ${invoice.id}\n`;
+    pdfTextContent += `Member: ${invoice.user_name}\n`;
+    pdfTextContent += `Status: ${invoice.status.toUpperCase()}\n`;
+    pdfTextContent += `Total: $${invoice.total.toFixed(2)}\n`;
+    pdfTextContent += `Created: ${new Date(invoice.created_at).toLocaleDateString()}\n`;
+    if (invoice.approved_at) pdfTextContent += `Approved: ${new Date(invoice.approved_at).toLocaleDateString()}\n`;
+    if (invoice.paid_at) pdfTextContent += `Paid: ${new Date(invoice.paid_at).toLocaleDateString()}\n`;
+    
+    pdfTextContent += `\n\nTIME ENTRIES:\n`;
+    pdfTextContent += `Date\t\tHours\tTask\t\tNotes\t\tAmount\n`;
+    pdfTextContent += `${'='.repeat(80)}\n`;
+    
+    entries.forEach(entry => {
+      const date = new Date(entry.date).toLocaleDateString();
+      const task = (entry.task || '').substring(0, 15);
+      const notes = (entry.notes || '').substring(0, 15);
+      pdfTextContent += `${date}\t${entry.hours}\t${task}\t${notes}\t$${entry.amount.toFixed(2)}\n`;
+    });
+    
+    pdfTextContent += `\n${'='.repeat(80)}\n`;
+    pdfTextContent += `TOTAL: $${invoice.total.toFixed(2)}\n`;
+    
+    // Return as text file instead of PDF for now
+    const textBuffer = Buffer.from(pdfTextContent, 'utf8');
+    
+    // Set response headers for text file download (temporary PDF replacement)
+    res.setHeader('Content-Type', 'text/plain');
+    res.setHeader('Content-Disposition', `attachment; filename="invoice-${id}.txt"`);
+    
+    // Send text file
+    res.send(textBuffer);
+    
+  } catch (error) {
+    console.error('Error generating PDF:', error);
+    res.status(500).json({ error: 'Failed to generate PDF' });
+  }
+});
+
+// Test export route
+router.get('/:id/export/test', authenticateToken, async (req, res) => {
+  try {
+    res.json({ message: `Test export for invoice ${req.params.id}`, user: req.user.id });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Export invoice as CSV
+router.get('/:id/export/csv', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Get invoice with user info
+    const invoice = await db.get(`
+      SELECT i.*, u.name as user_name 
+      FROM invoices i 
+      JOIN users u ON i.user_id = u.id 
+      WHERE i.id = ?
+    `, [id]);
+    
+    if (!invoice) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+    
+    // Check if user owns this invoice
+    if (req.user.role !== 'admin' && invoice.user_id !== req.user.id) {
+      return res.status(403).json({ error: 'You can only export your own invoices' });
+    }
+    
+    // Get invoice entries
+    const entries = await db.query(`
+      SELECT e.*, u.name as user_name 
+      FROM entries e 
+      JOIN users u ON e.user_id = u.id 
+      WHERE e.invoice_id = ? 
+      ORDER BY e.date DESC
+    `, [id]);
+    
+    // Create CSV content
+    let csvContent = "Type,Invoice_ID,Member,Status,Total,Date,Hours,Task,Notes,Amount\n";
+    
+    // Add invoice summary
+    csvContent += `Invoice Summary,${invoice.id},"${invoice.user_name}",${invoice.status.toUpperCase()},$${invoice.total.toFixed(2)},,,,,$${invoice.total.toFixed(2)}\n`;
+    csvContent += ",,,,,,,,\n"; // Empty row
+    
+    // Add entries
+    entries.forEach(entry => {
+      const task = (entry.task || '').replace(/"/g, '""');
+      const notes = (entry.notes || '').replace(/"/g, '""');
+      const entryDate = new Date(entry.date).toLocaleDateString();
+      csvContent += `Time Entry,${invoice.id},"${entry.user_name}",${invoice.status.toUpperCase()},,${entryDate},${entry.hours},"${task}","${notes}",$${entry.amount.toFixed(2)}\n`;
+    });
+    
+    // Set response headers
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="invoice-${id}.csv"`);
+    
+    res.send(csvContent);
+    
+  } catch (error) {
+    console.error('Error generating CSV:', error);
+    res.status(500).json({ error: 'Failed to generate CSV', details: error.message });
+  }
+});
+
 module.exports = router;

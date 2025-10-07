@@ -421,6 +421,84 @@ export default function App() {
     }
   }, [fetchData]);
 
+  const exportInvoicePdf = useCallback(async (invoiceId) => {
+    try {
+      console.log(`Exporting invoice ${invoiceId} as PDF...`);
+      
+      const response = await fetch(api.invoices.exportPdf(invoiceId), {
+        method: 'GET',
+        headers: getAuthHeaders()
+      });
+
+      if (!response.ok) {
+        let errorMessage = 'Failed to export report';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (parseError) {
+          console.error('Could not parse error response:', parseError);
+        }
+        throw new Error(errorMessage);
+      }
+
+      // Download the text file (temporary PDF replacement)
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `invoice-${invoiceId}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      console.log('Text report exported successfully');
+    } catch (error) {
+      console.error('Error exporting PDF:', error);
+      alert(`Failed to export report: ${error.message}`);
+    }
+  }, []);
+
+  const exportInvoiceCsv = useCallback(async (invoiceId) => {
+    try {
+      console.log(`Exporting invoice ${invoiceId} as CSV...`);
+      
+      const response = await fetch(api.invoices.exportCsv(invoiceId), {
+        method: 'GET',
+        headers: getAuthHeaders()
+      });
+
+      if (!response.ok) {
+        let errorMessage = 'Failed to export CSV';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (parseError) {
+          console.error('Could not parse error response:', parseError);
+        }
+        throw new Error(errorMessage);
+      }
+
+      // Download the CSV file
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `invoice-${invoiceId}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      console.log('CSV exported successfully');
+    } catch (error) {
+      console.error('Error exporting CSV:', error);
+      alert(`Failed to export CSV: ${error.message}`);
+    }
+  }, []);
+
   const approve = useCallback(async id => {
     try {
       console.log(`Attempting to approve invoice ${id}...`);
@@ -1077,9 +1155,23 @@ export default function App() {
                               PAID
                             </span>
                           </div>
-                          <button onClick={() => setViewInvoice(inv)} className="text-blue-600 text-sm hover:underline">
-                            View Details & Entries
-                          </button>
+                          <div className="flex gap-2 flex-wrap">
+                            <button onClick={() => setViewInvoice(inv)} className="text-blue-600 text-sm hover:underline">
+                              View Details & Entries
+                            </button>
+                            <button 
+                              onClick={() => exportInvoicePdf(inv.id)} 
+                              className="text-green-600 text-sm hover:underline font-medium"
+                            >
+                              Export PDF
+                            </button>
+                            <button 
+                              onClick={() => exportInvoiceCsv(inv.id)} 
+                              className="text-purple-600 text-sm hover:underline font-medium"
+                            >
+                              Export CSV
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1107,9 +1199,23 @@ export default function App() {
                               APPROVED
                             </span>
                           </div>
-                          <button onClick={() => setViewInvoice(inv)} className="text-blue-600 text-sm hover:underline">
-                            View Details & Entries
-                          </button>
+                          <div className="flex gap-2 flex-wrap">
+                            <button onClick={() => setViewInvoice(inv)} className="text-blue-600 text-sm hover:underline">
+                              View Details & Entries
+                            </button>
+                            <button 
+                              onClick={() => exportInvoicePdf(inv.id)} 
+                              className="text-green-600 text-sm hover:underline font-medium"
+                            >
+                              Export PDF
+                            </button>
+                            <button 
+                              onClick={() => exportInvoiceCsv(inv.id)} 
+                              className="text-purple-600 text-sm hover:underline font-medium"
+                            >
+                              Export CSV
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1137,7 +1243,7 @@ export default function App() {
                               SUBMITTED
                             </span>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 flex-wrap">
                             <button onClick={() => setViewInvoice(inv)} className="text-blue-600 text-sm hover:underline">
                               View Details & Entries
                             </button>
@@ -1146,6 +1252,18 @@ export default function App() {
                               className="text-red-600 text-sm hover:underline font-medium"
                             >
                               Withdraw
+                            </button>
+                            <button 
+                              onClick={() => exportInvoicePdf(inv.id)} 
+                              className="text-green-600 text-sm hover:underline font-medium"
+                            >
+                              Export PDF
+                            </button>
+                            <button 
+                              onClick={() => exportInvoiceCsv(inv.id)} 
+                              className="text-purple-600 text-sm hover:underline font-medium"
+                            >
+                              Export CSV
                             </button>
                           </div>
                         </div>
