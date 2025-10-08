@@ -9,6 +9,7 @@ export default defineConfig({
     host: true, // Listen on all interfaces (simpler than 0.0.0.0)
     strictPort: true, // Force port 3000, don't fallback
     open: false,
+    historyApiFallback: true, // Enable SPA routing - serve index.html for unknown routes
     proxy: {
       '/api': {
         target: 'http://localhost:3001',

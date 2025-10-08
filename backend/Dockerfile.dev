@@ -1,9 +1,9 @@
 # Debian-based = glibc (avoids musl issues with sqlite3)
 FROM node:20-bookworm-slim
 
-# Clean shutdowns; build tools for node-gyp
+# Clean shutdowns; build tools for node-gyp; mysql-client for database operations
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      tini python3 build-essential sqlite3 libsqlite3-dev \
+      tini python3 build-essential mysql-client \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -1,4 +1,4 @@
-const db = require('../database');
+const db = require('../database-loader');
 
 /**
  * Base service class providing common database operations

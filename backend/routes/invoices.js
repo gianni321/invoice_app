@@ -1,5 +1,5 @@
 const express = require('express');
-const db = require('../database');
+const db = require('../database-loader');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
 const { getInvoiceSettings } = require('../lib/settings');
 const { getDueDatetimes, periodBounds, statusFor, currentPeriod, dueForPeriod, ZONE } = require('../lib/deadlines');
@@ -186,15 +186,53 @@ router.get('/', authenticateToken, async (req, res) => {
 // Submit invoice
 router.post('/submit', authenticateToken, async (req, res) => {
   try {
-    // Get current period bounds first
-    const s = await getInvoiceSettings();
-    const { last, next } = getDueDatetimes({
-      weekday: s.weekday,
-      hour: s.hour,
-      minute: s.minute,
-      zone: s.zone
-    });
-    const { period_start, period_end } = periodBounds({ lastDue: last, nextDue: next });
+    const { customInvoiceDate, note } = req.body;
+    
+    // Calculate period bounds based on custom date or current period
+    let period_start, period_end, isManualPeriod = false;
+    
+    if (customInvoiceDate) {
+      // Validate date format
+      const customDate = new Date(customInvoiceDate);
+      if (isNaN(customDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid customInvoiceDate format' });
+      }
+      
+      // Prevent future dates (more than 1 day ahead to account for timezone)
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      if (customDate > tomorrow) {
+        return res.status(400).json({ error: 'Cannot create invoices for future dates' });
+      }
+      
+      // Prevent excessive backdating (90 days)
+      const ninetyDaysAgo = new Date();
+      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+      if (customDate < ninetyDaysAgo) {
+        return res.status(400).json({ error: 'Cannot create invoices more than 90 days in the past' });
+      }
+      
+      // Calculate period for the custom date (inline for now)
+      const { DateTime } = require('luxon');
+      const targetDate = DateTime.fromISO(customInvoiceDate).setZone(ZONE);
+      const start = targetDate.startOf('week').plus({ minutes: 1 }); // Monday 00:01
+      const end = start.plus({ days: 6, hours: 23, minutes: 58, seconds: 59 }); // Sunday 23:59:59
+      period_start = start.toISO();
+      period_end = end.toISO();
+      isManualPeriod = true;
+    } else {
+      // Use current period (existing logic)
+      const s = await getInvoiceSettings();
+      const { last, next } = getDueDatetimes({
+        weekday: s.weekday,
+        hour: s.hour,
+        minute: s.minute,
+        zone: s.zone
+      });
+      const bounds = periodBounds({ lastDue: last, nextDue: next });
+      period_start = bounds.period_start;
+      period_end = bounds.period_end;
+    }
 
     // Get open entries for user that fall within the current period
     const entries = await db.query(
@@ -250,23 +288,40 @@ router.post('/submit', authenticateToken, async (req, res) => {
     // Round total
     total = Math.round(total * 100) / 100;
 
-    // Check for existing invoice in this period (using already calculated period bounds)
+    // Check for existing invoice in this period
     const existing = await db.get(
-      `SELECT id FROM invoices 
+      `SELECT id, manual_period FROM invoices 
        WHERE user_id = ? AND period_start = ? AND period_end = ?`,
       [req.user.id, period_start, period_end]
     );
 
-    if (existing) {
-      return res.status(400).json({ error: 'Invoice already submitted for this period' });
+    // Duplicate policy: 
+    // - If no custom date and invoice exists for current period → block (prevent accidental dupes)
+    // - If custom date provided → allow second invoice (user explicitly chose period)
+    if (existing && !isManualPeriod) {
+      return res.status(400).json({ 
+        error: 'Invoice already submitted for this period',
+        suggestion: 'Use a custom invoice date to create additional invoices for this week'
+      });
     }
 
-    // Create invoice with period bounds
+    // Create invoice with period bounds and manual period tracking
+    const now = new Date().toISOString();
     const result = await db.run(
       `INSERT INTO invoices 
-       (user_id, total, status, period_start, period_end, created_at) 
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [req.user.id, total, 'submitted', period_start, period_end, new Date().toISOString()]
+       (user_id, total, status, period_start, period_end, created_at, manual_period, declared_at, custom_note) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        req.user.id, 
+        total, 
+        'submitted', 
+        period_start, 
+        period_end, 
+        now,
+        isManualPeriod ? 1 : 0,
+        isManualPeriod ? now : null,
+        note || null
+      ]
     );
 
     // Update entries with invoice_id
@@ -279,7 +334,13 @@ router.post('/submit', authenticateToken, async (req, res) => {
 
     await db.run(
       'INSERT INTO audit_log (user_id, action, details) VALUES (?, ?, ?)',
-      [req.user.id, 'INVOICE_SUBMITTED', `Invoice ${result.id} submitted`]
+      [
+        req.user.id, 
+        'INVOICE_SUBMITTED', 
+        isManualPeriod 
+          ? `Invoice ${result.id} submitted (manual period: ${customInvoiceDate}${note ? ', reason: ' + note : ''})`
+          : `Invoice ${result.id} submitted`
+      ]
     );
 
     // Get complete invoice with all fields

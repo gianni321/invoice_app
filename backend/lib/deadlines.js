@@ -77,9 +77,25 @@ function periodBounds({ lastDue, nextDue }) {
   };
 }
 
+/**
+ * Calculate period bounds for a specific date (work week containing the date)
+ * @param {string|DateTime} date - ISO date string or DateTime object
+ * @returns {Object} - { period_start, period_end } in ISO format
+ */
+function periodBoundsForDate(date) {
+  const targetDate = typeof date === 'string' ? DateTime.fromISO(date).setZone(ZONE) : date.setZone(ZONE);
+  const period = currentPeriod(targetDate);
+  
+  return {
+    period_start: period.start.toISO(),
+    period_end: period.end.toISO()
+  };
+}
+
 module.exports = { 
   getDueDatetimes, 
   periodBounds, 
+  periodBoundsForDate,
   statusFor,
   currentPeriod,
   dueForPeriod,

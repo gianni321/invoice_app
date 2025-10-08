@@ -1,4 +1,4 @@
-const db = require('../database');
+const db = require('../database-loader');
 
 async function getInvoiceSettings() {
   const rows = await db.query('SELECT key, value FROM app_settings');
