@@ -431,7 +431,7 @@ export default function App() {
       });
 
       if (!response.ok) {
-        let errorMessage = 'Failed to export report';
+        let errorMessage = 'Failed to export PDF';
         try {
           const errorData = await response.json();
           errorMessage = errorData.error || errorMessage;
@@ -441,22 +441,35 @@ export default function App() {
         throw new Error(errorMessage);
       }
 
-      // Download the text file (temporary PDF replacement)
+      // Check if the response is actually a PDF
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/pdf')) {
+        throw new Error('Server did not return a valid PDF file');
+      }
+
+      // Download the PDF file
       const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
+      
+      // Verify the blob is not empty
+      if (blob.size === 0) {
+        throw new Error('Received empty PDF file');
+      }
+      
+      const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
       const a = document.createElement('a');
       a.style.display = 'none';
       a.href = url;
-      a.download = `invoice-${invoiceId}.txt`;
+      a.download = `invoice-${invoiceId}.pdf`;
+      a.target = '_blank'; // Open in new tab if download fails
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
       
-      console.log('Text report exported successfully');
+      console.log('PDF exported successfully');
     } catch (error) {
       console.error('Error exporting PDF:', error);
-      alert(`Failed to export report: ${error.message}`);
+      alert(`Failed to export PDF: ${error.message}`);
     }
   }, []);
 

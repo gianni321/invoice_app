@@ -94,25 +94,69 @@ app.use('*', notFoundHandler);
 // Error handling
 app.use(errorLogging);
 
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   logger.info(`🚀 Server running on http://localhost:${PORT}`);
   logger.info(`📊 API available at http://localhost:${PORT}/api`);
+  logger.info('Server startup completed successfully');
 });
 
-// Handle server shutdown
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM signal received. Closing server...');
-  server.close(() => {
-    logger.info('Server closed');
+// Set server timeout
+server.timeout = 120000; // 2 minutes
+
+// Handle server errors
+server.on('error', (error) => {
+  if (error.syscall !== 'listen') {
+    throw error;
+  }
+
+  const bind = typeof PORT === 'string'
+    ? 'Pipe ' + PORT
+    : 'Port ' + PORT;
+
+  switch (error.code) {
+    case 'EACCES':
+      logger.error(bind + ' requires elevated privileges');
+      process.exit(1);
+      break;
+    case 'EADDRINUSE':
+      logger.error(bind + ' is already in use');
+      process.exit(1);
+      break;
+    default:
+      throw error;
+  }
+});
+
+// Handle graceful shutdown
+const gracefulShutdown = (signal) => {
+  logger.info(`${signal} signal received. Starting graceful shutdown...`);
+  server.close((err) => {
+    if (err) {
+      logger.error('Error during server shutdown:', err);
+      process.exit(1);
+    }
+    logger.info('Server closed successfully');
     process.exit(0);
   });
-});
+  
+  // Force shutdown after 10 seconds
+  setTimeout(() => {
+    logger.error('Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 10000);
+};
 
-// Handle uncaught errors
+// Handle shutdown signals
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Handle uncaught errors with restart capability
 process.on('uncaughtException', (error) => {
   logger.error('Uncaught Exception:', { error: error.message, stack: error.stack });
-  server.close(() => {
-    logger.info('Server closed due to error');
-    process.exit(1);
-  });
+  gracefulShutdown('UNCAUGHT_EXCEPTION');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  gracefulShutdown('UNHANDLED_REJECTION');
 });

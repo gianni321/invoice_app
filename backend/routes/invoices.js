@@ -656,49 +656,183 @@ router.get('/:id/export/pdf', authenticateToken, async (req, res) => {
     
     // Get invoice entries
     const entries = await db.query(`
-      SELECT e.*, u.name as user_name 
+      SELECT e.*, u.name as user_name, (e.hours * u.rate) as amount
       FROM entries e 
       JOIN users u ON e.user_id = u.id 
       WHERE e.invoice_id = ? 
       ORDER BY e.date DESC
     `, [id]);
+
+    // Generate PDF using Puppeteer
+    const puppeteer = require('puppeteer');
     
-    // For now, return CSV content formatted for PDF until we properly configure html-pdf-node
-    // This is a temporary solution that provides the data in a downloadable format
-    
-    // Create text content that would be in the PDF
-    let pdfTextContent = `INVOICE REPORT\n\n`;
-    pdfTextContent += `Invoice #: ${invoice.id}\n`;
-    pdfTextContent += `Member: ${invoice.user_name}\n`;
-    pdfTextContent += `Status: ${invoice.status.toUpperCase()}\n`;
-    pdfTextContent += `Total: $${invoice.total.toFixed(2)}\n`;
-    pdfTextContent += `Created: ${new Date(invoice.created_at).toLocaleDateString()}\n`;
-    if (invoice.approved_at) pdfTextContent += `Approved: ${new Date(invoice.approved_at).toLocaleDateString()}\n`;
-    if (invoice.paid_at) pdfTextContent += `Paid: ${new Date(invoice.paid_at).toLocaleDateString()}\n`;
-    
-    pdfTextContent += `\n\nTIME ENTRIES:\n`;
-    pdfTextContent += `Date\t\tHours\tTask\t\tNotes\t\tAmount\n`;
-    pdfTextContent += `${'='.repeat(80)}\n`;
-    
-    entries.forEach(entry => {
-      const date = new Date(entry.date).toLocaleDateString();
-      const task = (entry.task || '').substring(0, 15);
-      const notes = (entry.notes || '').substring(0, 15);
-      pdfTextContent += `${date}\t${entry.hours}\t${task}\t${notes}\t$${entry.amount.toFixed(2)}\n`;
+    // Create HTML content for the PDF
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Invoice ${invoice.id}</title>
+        <style>
+          body { 
+            font-family: Arial, sans-serif; 
+            margin: 40px; 
+            line-height: 1.6;
+            color: #333;
+          }
+          .header { 
+            text-align: center; 
+            margin-bottom: 40px; 
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 20px;
+          }
+          .header h1 {
+            color: #007bff;
+            margin: 0;
+            font-size: 28px;
+          }
+          .invoice-details { 
+            margin-bottom: 30px; 
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+          }
+          .invoice-details h2 {
+            color: #007bff;
+            margin-top: 0;
+            margin-bottom: 15px;
+          }
+          .invoice-details div { 
+            margin: 8px 0; 
+            font-size: 14px;
+          }
+          .invoice-details strong {
+            color: #495057;
+          }
+          table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin-top: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          }
+          th, td { 
+            border: 1px solid #dee2e6; 
+            padding: 12px 8px; 
+            text-align: left;
+            font-size: 13px;
+          }
+          th { 
+            background-color: #007bff; 
+            color: white;
+            font-weight: bold;
+          }
+          tr:nth-child(even) {
+            background-color: #f8f9fa;
+          }
+          .total { 
+            font-weight: bold; 
+            font-size: 18px; 
+            margin-top: 20px;
+            text-align: right;
+            color: #007bff;
+            padding: 15px;
+            background: #e7f3ff;
+            border-radius: 5px;
+          }
+          .status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+          }
+          .status.paid { background: #d4edda; color: #155724; }
+          .status.approved { background: #d1ecf1; color: #0c5460; }
+          .status.submitted { background: #fff3cd; color: #856404; }
+          .status.draft { background: #f8d7da; color: #721c24; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>Invoice Report</h1>
+          <p>Generated on ${new Date().toLocaleDateString()}</p>
+        </div>
+        
+        <div class="invoice-details">
+          <h2>Invoice Details</h2>
+          <div><strong>Invoice #:</strong> ${invoice.id}</div>
+          <div><strong>Member:</strong> ${invoice.user_name}</div>
+          <div><strong>Status:</strong> <span class="status ${invoice.status}">${invoice.status.toUpperCase()}</span></div>
+          <div><strong>Total Amount:</strong> $${invoice.total.toFixed(2)}</div>
+          <div><strong>Created:</strong> ${new Date(invoice.created_at).toLocaleDateString()}</div>
+          ${invoice.approved_at ? `<div><strong>Approved:</strong> ${new Date(invoice.approved_at).toLocaleDateString()}</div>` : ''}
+          ${invoice.paid_at ? `<div><strong>Paid:</strong> ${new Date(invoice.paid_at).toLocaleDateString()}</div>` : ''}
+        </div>
+        
+        <h2 style="color: #007bff; border-bottom: 1px solid #dee2e6; padding-bottom: 10px;">Time Entries</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Hours</th>
+              <th>Task</th>
+              <th>Notes</th>
+              <th>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${entries.map(entry => `
+              <tr>
+                <td>${new Date(entry.date).toLocaleDateString()}</td>
+                <td>${entry.hours}</td>
+                <td>${entry.task || 'N/A'}</td>
+                <td>${entry.notes || 'N/A'}</td>
+                <td>$${(entry.amount || 0).toFixed(2)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        
+        <div class="total">
+          Total: $${invoice.total.toFixed(2)}
+        </div>
+      </body>
+      </html>
+    `;
+
+    // Launch Puppeteer and generate PDF
+    const browser = await puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
     
-    pdfTextContent += `\n${'='.repeat(80)}\n`;
-    pdfTextContent += `TOTAL: $${invoice.total.toFixed(2)}\n`;
+    const page = await browser.newPage();
+    await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
     
-    // Return as text file instead of PDF for now
-    const textBuffer = Buffer.from(pdfTextContent, 'utf8');
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      margin: {
+        top: '20px',
+        bottom: '20px',
+        left: '20px',
+        right: '20px'
+      },
+      printBackground: true
+    });
     
-    // Set response headers for text file download (temporary PDF replacement)
-    res.setHeader('Content-Type', 'text/plain');
-    res.setHeader('Content-Disposition', `attachment; filename="invoice-${id}.txt"`);
+    await browser.close();
     
-    // Send text file
-    res.send(textBuffer);
+    // Set response headers for PDF download
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.setHeader('Content-Disposition', `attachment; filename="invoice-${id}.pdf"`);
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    
+    // Send PDF buffer
+    res.end(pdfBuffer);
     
   } catch (error) {
     console.error('Error generating PDF:', error);

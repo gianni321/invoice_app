@@ -6,8 +6,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
-    host: '127.0.0.1',
-    strictPort: false,
+    host: true, // Listen on all interfaces (simpler than 0.0.0.0)
+    strictPort: true, // Force port 3000, don't fallback
     open: false,
     proxy: {
       '/api': {
