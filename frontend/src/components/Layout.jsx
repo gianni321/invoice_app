@@ -13,7 +13,7 @@ export function Layout({ children }) {
       path: '/entries', 
       label: 'Time Entries', 
       icon: Clock,
-      available: true 
+      available: !isAdmin 
     },
     { 
       path: '/invoices', 

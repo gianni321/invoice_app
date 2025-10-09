@@ -9,7 +9,9 @@ export function Navigation({ currentView, onViewChange }) {
   const { user, logout } = useAuthStore();
 
   const menuItems = [
-    { id: 'entries', label: 'Time Entries', icon: Clock },
+    ...(user?.role !== 'admin' ? [
+      { id: 'entries', label: 'Time Entries', icon: Clock }
+    ] : []),
     { id: 'invoices', label: 'Invoices', icon: FileText },
     ...(user?.role === 'admin' ? [
       { id: 'admin', label: 'Admin', icon: Settings }
