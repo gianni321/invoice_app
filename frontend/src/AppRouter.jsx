@@ -44,7 +44,11 @@ function AppRoutes() {
   const { isLoggedIn } = useAuth();
 
   return (
-    <Router>
+    <Router
+      future={{
+        v7_relativeSplatPath: true,
+      }}
+    >
       <Routes>
         <Route 
           path="/login" 
