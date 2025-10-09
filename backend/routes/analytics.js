@@ -14,14 +14,14 @@ router.get('/burn-rates', async (req, res) => {
         u.id,
         u.name,
         u.rate,
-        COALESCE(SUM(te.hours), 0) as totalHours,
-        COALESCE(SUM(te.hours * u.rate), 0) as actualSpend,
+        COALESCE(SUM(e.hours), 0) as totalHours,
+        COALESCE(SUM(e.hours * u.rate), 0) as actualSpend,
         COALESCE(u.budget, u.rate * 40 * 4) as budget,
-        COALESCE(SUM(te.hours * u.rate) / NULLIF(u.budget, 0) * 100, 0) as burnRate
+        COALESCE(SUM(e.hours * u.rate) / NULLIF(u.budget, 0) * 100, 0) as burnRate
       FROM users u
-      LEFT JOIN time_entries te ON u.id = te.userId 
-        AND te.date >= date('now', 'start of month')
-        AND te.date <= date('now')
+      LEFT JOIN entries e ON u.id = e.user_id 
+        AND e.date >= date('now', 'start of month')
+        AND e.date <= date('now')
       WHERE u.name != 'admin'
       GROUP BY u.id, u.name, u.rate, u.budget
       ORDER BY burnRate DESC
@@ -54,14 +54,14 @@ router.get('/weekly-expenses/:week?', async (req, res) => {
     
     const query = `
       SELECT 
-        DATE(te.date, 'weekday 0', '-6 days') as weekStart,
-        COUNT(DISTINCT te.userId) as activeMembers,
-        COALESCE(SUM(te.hours), 0) as totalHours,
-        COALESCE(SUM(te.hours * u.rate), 0) as totalExpense,
-        COALESCE(AVG(te.hours * u.rate), 0) as avgDailyCost
-      FROM time_entries te
-      JOIN users u ON te.userId = u.id
-      WHERE te.date >= ? AND te.date <= ?
+        DATE(e.date, 'weekday 0', '-6 days') as weekStart,
+        COUNT(DISTINCT e.user_id) as activeMembers,
+        COALESCE(SUM(e.hours), 0) as totalHours,
+        COALESCE(SUM(e.hours * u.rate), 0) as totalExpense,
+        COALESCE(AVG(e.hours * u.rate), 0) as avgDailyCost
+      FROM entries e
+      JOIN users u ON e.user_id = u.id
+      WHERE e.date >= ? AND e.date <= ?
       GROUP BY weekStart
     `;
     
@@ -102,16 +102,16 @@ router.get('/team-metrics', async (req, res) => {
         u.rate,
         COALESCE(SUM(te.hours), 0) as totalHours,
         COALESCE(SUM(te.hours * u.rate), 0) as revenue,
-        COALESCE(COUNT(DISTINCT DATE(te.date)), 0) as activeDays,
-        COALESCE(AVG(te.hours), 0) as avgHoursPerDay,
+        COALESCE(COUNT(DISTINCT DATE(e.date)), 0) as activeDays,
+        COALESCE(AVG(e.hours), 0) as avgHoursPerDay,
         CASE 
-          WHEN SUM(te.hours) > 0 THEN 
-            ROUND((SUM(te.hours) / (julianday('now') - julianday(MIN(te.date)) + 1)) * 100, 1)
+          WHEN SUM(e.hours) > 0 THEN 
+            ROUND((SUM(e.hours) / (julianday('now') - julianday(MIN(e.date)) + 1)) * 100, 1)
           ELSE 0 
         END as efficiency
       FROM users u
-      LEFT JOIN time_entries te ON u.id = te.userId 
-        AND te.date >= date('now', '-30 days')
+      LEFT JOIN entries e ON u.id = e.user_id 
+        AND e.date >= date('now', '-30 days')
       WHERE u.name != 'admin'
       GROUP BY u.id, u.name, u.rate
       HAVING totalHours > 0
@@ -150,7 +150,7 @@ router.get('/invoices-by-week', async (req, res) => {
         DATE(i.created_at, 'weekday 0', '-6 days') as weekStart,
         u.name as clientName
       FROM invoices i
-      JOIN users u ON i.userId = u.id
+      JOIN users u ON i.user_id = u.id
       WHERE i.created_at >= date('now', '-90 days')
       ORDER BY i.created_at DESC
     `;
@@ -222,14 +222,14 @@ router.get('/budget-analysis', async (req, res) => {
     const query = `
       SELECT 
         COALESCE(te.tag, 'Untagged') as project,
-        COUNT(te.id) as entryCount,
-        COALESCE(SUM(te.hours), 0) as totalHours,
-        COALESCE(SUM(te.hours * u.rate), 0) as actualSpend,
+        COUNT(e.id) as entryCount,
+        COALESCE(SUM(e.hours), 0) as totalHours,
+        COALESCE(SUM(e.hours * u.rate), 0) as actualSpend,
         COALESCE(AVG(u.rate), 0) as avgRate
-      FROM time_entries te
-      JOIN users u ON te.userId = u.id
-      WHERE te.date >= date('now', '-30 days')
-      GROUP BY te.tag
+      FROM entries e
+      JOIN users u ON e.user_id = u.id
+      WHERE e.date >= date('now', '-30 days')
+      GROUP BY e.tag
       HAVING totalHours > 0
       ORDER BY actualSpend DESC
       LIMIT 10

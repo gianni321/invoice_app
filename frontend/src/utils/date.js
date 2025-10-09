@@ -1,4 +1,4 @@
-import { VALIDATION_RULES } from '../constants';
+import { VALIDATION_RULES } from '../constants/index.js';
 
 /**
  * Comprehensive date utility functions for the invoice application

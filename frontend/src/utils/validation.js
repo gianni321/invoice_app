@@ -1,4 +1,4 @@
-import { VALIDATION_RULES, ERROR_MESSAGES } from '../constants';
+import { VALIDATION_RULES, ERROR_MESSAGES } from '../constants/index.js';
 
 /**
  * @typedef {Object} ValidationResult

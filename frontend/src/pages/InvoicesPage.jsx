@@ -113,6 +113,8 @@ export function InvoicesPage() {
   const [entries, setEntries] = useState([]);
   const [viewInvoice, setViewInvoice] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
 
   useEffect(() => {
     Promise.all([fetchInvoices(), fetchEntries()]);
@@ -156,6 +158,17 @@ export function InvoicesPage() {
       setLoading(false);
     }
   };
+
+  // Filter invoices based on search term and status
+  const filteredInvoices = invoices.filter(invoice => {
+    const matchesSearch = searchTerm === '' || 
+      (invoice.user_name && invoice.user_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (invoice.user_email && invoice.user_email.toLowerCase().includes(searchTerm.toLowerCase()));
+    
+    const matchesStatus = statusFilter === 'all' || invoice.status === statusFilter;
+    
+    return matchesSearch && matchesStatus;
+  });
 
   const handleSubmitInvoice = async () => {
     const uninvoicedEntries = entries.filter(e => !e.invoiceId);
@@ -290,14 +303,76 @@ export function InvoicesPage() {
       {/* Invoices List */}
       <div className="bg-white rounded-lg shadow">
         <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-medium">Invoice History</h2>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-medium">Invoice History</h2>
+            <div className="text-sm text-gray-500">
+              Total: {filteredInvoices.length} of {invoices.length} invoices
+            </div>
+          </div>
+          
+          {/* Search and Filter Controls */}
+          <div className="flex flex-col sm:flex-row gap-4 mb-6">
+            <div className="flex-1">
+              <input
+                type="text"
+                placeholder="Search by user name or email..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <div className="sm:w-48">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="all">All Statuses</option>
+                <option value="submitted">Submitted</option>
+                <option value="approved">Approved</option>
+                <option value="paid">Paid</option>
+              </select>
+            </div>
+          </div>
+          
+          {/* Admin Summary Stats */}
+          {invoices.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+              <div className="bg-yellow-50 p-3 rounded-lg">
+                <div className="text-xs text-yellow-600 uppercase tracking-wide">Submitted</div>
+                <div className="text-lg font-semibold text-yellow-800">
+                  {invoices.filter(i => i.status === 'submitted').length}
+                </div>
+              </div>
+              <div className="bg-green-50 p-3 rounded-lg">
+                <div className="text-xs text-green-600 uppercase tracking-wide">Approved</div>
+                <div className="text-lg font-semibold text-green-800">
+                  {invoices.filter(i => i.status === 'approved').length}
+                </div>
+              </div>
+              <div className="bg-blue-50 p-3 rounded-lg">
+                <div className="text-xs text-blue-600 uppercase tracking-wide">Paid</div>
+                <div className="text-lg font-semibold text-blue-800">
+                  {invoices.filter(i => i.status === 'paid').length}
+                </div>
+              </div>
+              <div className="bg-gray-50 p-3 rounded-lg">
+                <div className="text-xs text-gray-600 uppercase tracking-wide">Total Value</div>
+                <div className="text-lg font-semibold text-gray-800">
+                  {fmtUSD(invoices.reduce((sum, i) => sum + (i.total || 0), 0))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
         
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Period</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date Submitted</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hours</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
@@ -305,54 +380,113 @@ export function InvoicesPage() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {invoices.map((invoice) => (
-                <tr key={invoice.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {new Date(invoice.date + 'T12:00:00').toLocaleDateString()}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {Number.parseFloat(invoice.hours || 0).toFixed(1)}h
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {fmtUSD(invoice.total)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      invoice.status === 'submitted' ? 'bg-yellow-100 text-yellow-800' :
-                      invoice.status === 'approved' ? 'bg-green-100 text-green-800' :
-                      invoice.status === 'paid' ? 'bg-blue-100 text-blue-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
-                      {invoice.status === 'submitted' && <Clock className="h-3 w-3 mr-1" />}
-                      {invoice.status === 'approved' && <CheckCircle className="h-3 w-3 mr-1" />}
-                      {invoice.status === 'paid' && <DollarSign className="h-3 w-3 mr-1" />}
-                      {(invoice.status || 'unknown').toUpperCase()}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex justify-end space-x-2">
-                      <button
-                        onClick={() => setViewInvoice(invoice)}
-                        className="text-blue-600 hover:text-blue-900"
-                      >
-                        View
-                      </button>
-                      <button
-                        onClick={() => handleDownload(invoice)}
-                        className="text-green-600 hover:text-green-900"
-                      >
-                        <Download className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {filteredInvoices.map((invoice) => {
+                // Calculate date range from entries
+                const entries = invoice.entries || [];
+                let dateRange = '—';
+                if (entries.length > 0) {
+                  const dates = entries.map(e => new Date(e.date + 'T12:00:00')).sort((a, b) => a - b);
+                  const startDate = dates[0];
+                  const endDate = dates[dates.length - 1];
+                  
+                  if (startDate.getTime() === endDate.getTime()) {
+                    dateRange = startDate.toLocaleDateString();
+                  } else {
+                    dateRange = `${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}`;
+                  }
+                }
+
+                return (
+                  <tr key={invoice.id} className="hover:bg-gray-50">
+                    {/* User Name */}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mr-3">
+                          <span className="text-blue-600 font-medium text-sm">
+                            {(invoice.user?.name || invoice.userName || 'Unknown').charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">
+                            {invoice.user?.name || invoice.userName || 'Unknown User'}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {invoice.user?.email || ''}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    
+                    {/* Date Range/Period */}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{dateRange}</div>
+                      <div className="text-xs text-gray-500">
+                        {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
+                      </div>
+                    </td>
+                    
+                    {/* Date Submitted */}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {new Date(invoice.date + 'T12:00:00').toLocaleDateString()}
+                    </td>
+                    
+                    {/* Hours */}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {Number.parseFloat(invoice.hours || 0).toFixed(1)}h
+                    </td>
+                    
+                    {/* Amount */}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {fmtUSD(invoice.total)}
+                    </td>
+                    
+                    {/* Status */}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                        invoice.status === 'submitted' ? 'bg-yellow-100 text-yellow-800' :
+                        invoice.status === 'approved' ? 'bg-green-100 text-green-800' :
+                        invoice.status === 'paid' ? 'bg-blue-100 text-blue-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {invoice.status === 'submitted' && <Clock className="h-3 w-3 mr-1" />}
+                        {invoice.status === 'approved' && <CheckCircle className="h-3 w-3 mr-1" />}
+                        {invoice.status === 'paid' && <DollarSign className="h-3 w-3 mr-1" />}
+                        {(invoice.status || 'unknown').toUpperCase()}
+                      </span>
+                    </td>
+                    
+                    {/* Actions */}
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex justify-end space-x-2">
+                        <button
+                          onClick={() => setViewInvoice(invoice)}
+                          className="text-blue-600 hover:text-blue-900"
+                        >
+                          View
+                        </button>
+                        <button
+                          onClick={() => handleDownload(invoice)}
+                          className="text-green-600 hover:text-green-900"
+                        >
+                          <Download className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           
           {invoices.length === 0 && (
             <div className="text-center py-8 text-gray-500">
               No invoices yet. Submit your first invoice to get started.
+            </div>
+          )}
+          
+          {invoices.length > 0 && filteredInvoices.length === 0 && (
+            <div className="text-center py-8 text-gray-500">
+              No invoices match your search criteria. Try adjusting your filters.
             </div>
           )}
         </div>

@@ -72,16 +72,26 @@ export const AnalyticsDashboard = React.memo(function AnalyticsDashboard() {
       const teamMetrics = await teamMetricsRes.json();
 
       // Calculate total weekly expense and hours
-      const totalExpense = burnRates.reduce((sum, member) => sum + member.weeklyExpense, 0);
-      const totalHours = burnRates.reduce((sum, member) => sum + member.hoursWorked, 0);
+      const totalExpense = burnRates.reduce((sum, member) => sum + member.actualSpend, 0);
+      const totalHours = burnRates.reduce((sum, member) => sum + member.totalHours, 0);
       const avgHourlyRate = totalHours > 0 ? totalExpense / totalHours : 0;
+
+      // Merge team data by name to avoid index misalignment
+      const mergedTeamData = burnRates.map(burnRate => {
+        const performance = teamMetrics.find(tm => tm.name === burnRate.name) || {};
+        return {
+          ...burnRate,
+          hoursWorked: performance.totalHours || burnRate.totalHours || 0,
+          efficiency: performance.efficiency || 0
+        };
+      });
 
       setAnalytics({
         weeklyExpense: totalExpense,
         activeMembers: burnRates.length,
         weeklyHours: totalHours,
         avgHourlyRate: avgHourlyRate,
-        teamBurnRates: burnRates,
+        teamBurnRates: mergedTeamData,
         teamPerformance: teamMetrics
       });
     } catch (error) {
@@ -91,12 +101,12 @@ export const AnalyticsDashboard = React.memo(function AnalyticsDashboard() {
       setAnalytics({
         weeklyExpense: 2450,
         activeMembers: 3,
-        weeklyHours: 120,
-        avgHourlyRate: 20.42,
+        weeklyHours: 33,
+        avgHourlyRate: 74.24, // Realistic rate: 2450 / 33 hours
         teamBurnRates: [
-          { name: 'John Smith', weeklyExpense: 900, budgetUsed: 60, rate: 75 },
-          { name: 'Sarah Johnson', weeklyExpense: 1100, budgetUsed: 80, rate: 80 },
-          { name: 'Mike Chen', weeklyExpense: 450, budgetUsed: 95, rate: 65 }
+          { name: 'John Smith', actualSpend: 900, totalHours: 12, budgetUsed: 60, rate: 75, hoursWorked: 12 },
+          { name: 'Sarah Johnson', actualSpend: 1120, totalHours: 14, budgetUsed: 80, rate: 80, hoursWorked: 14 },
+          { name: 'Mike Chen', actualSpend: 430, totalHours: 7, budgetUsed: 95, rate: 65, hoursWorked: 7 }
         ],
         teamPerformance: [
           { name: 'John Smith', efficiency: 85, weeklyExpense: 900, hoursWorked: 12 },
@@ -203,22 +213,23 @@ export const AnalyticsDashboard = React.memo(function AnalyticsDashboard() {
         <h3 className="text-lg font-bold mb-4">�‍💻 Developer Performance</h3>
         <div className="space-y-4">
           {analytics.teamBurnRates.map((member, index) => {
-            const hoursWorked = analytics.teamPerformance[index]?.hoursWorked || 0;
+            const hoursWorked = member.hoursWorked || 0;
             const hourlyRate = member.rate;
             const progressPercentage = Math.min((hoursWorked / 40) * 100, 100);
+            const budgetSpent = member.budgetUsed || 0;
             
             return (
-              <div key={index} className="border-l-4 border-blue-500 pl-4">
+              <div key={member.name || index} className="border-l-4 border-blue-500 pl-4">
                 <div className="flex justify-between items-center mb-2">
                   <span className="font-medium text-lg">{member.name}</span>
-                  <span className="text-sm text-gray-600 font-medium">{formatCurrency(member.weeklyExpense)} burn rate</span>
+                  <span className="text-sm text-gray-600 font-medium">{formatCurrency(member.actualSpend || member.weeklyExpense)} total spend</span>
                 </div>
                 
                 {/* Hours Progress Bar (0-40 scale) */}
                 <div className="mb-3">
                   <div className="flex justify-between items-center mb-1">
                     <span className="text-sm font-medium text-gray-700">Hours Billed This Week</span>
-                    <span className="text-sm font-bold text-blue-600">{hoursWorked}h / 40h</span>
+                    <span className="text-sm font-bold text-blue-600">{hoursWorked}h of 40h ({Math.round(progressPercentage)}%)</span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-3">
                     <div 
@@ -243,8 +254,8 @@ export const AnalyticsDashboard = React.memo(function AnalyticsDashboard() {
                     <div className="text-gray-600">Hours Billed</div>
                   </div>
                   <div className="text-center bg-orange-50 p-2 rounded">
-                    <div className="font-medium text-orange-600">{member.budgetUsed}%</div>
-                    <div className="text-gray-600">Budget Used</div>
+                    <div className="font-medium text-orange-600">{budgetSpent}%</div>
+                    <div className="text-gray-600">Budget Spent</div>
                   </div>
                 </div>
               </div>

@@ -1,10 +1,11 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { Clock, Download, Lock, Home, Plus, Trash2, PencilLine, Check, X, FileText, CheckCircle, DollarSign, AlertCircle, Settings, BarChart3 } from 'lucide-react';
+import { Clock, Download, Lock, Home, Plus, Trash2, PencilLine, Check, X, FileText, CheckCircle, DollarSign, AlertCircle, Settings, BarChart3, Calendar } from 'lucide-react';
 import { api, getAuthHeaders, setAuthToken, clearAuthToken } from './config';
 import { DeadlineWarningBanner } from './components/DeadlineStatus';
 import { BatchTimeEntry } from './components/BatchTimeEntry';
 import { AdminPanel } from './components/AdminPanel';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
+import { WeeklyReportModal } from './components/WeeklyReportModal';
 import monitoring, { UserAction } from './utils/monitoring';
 
 // Format currency
@@ -124,6 +125,7 @@ export default function App() {
   const [availableTags, setAvailableTags] = useState([]);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
+  const [showWeeklyReport, setShowWeeklyReport] = useState(false);
   const [form, setForm] = useState({ 
     hours: '', 
     task: '', 
@@ -923,6 +925,16 @@ export default function App() {
             <p className="text-gray-600">Rate: {fmt.format(user.rate)}/hr</p>
           </div>
           <div className="flex items-center space-x-3">
+            {/* Quick Submit Invoice Button in Header */}
+            {openEntries.length > 0 && (
+              <button 
+                onClick={submit}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
+              >
+                <FileText className="w-4 h-4" />
+                <span>Submit Invoice ({openEntries.length})</span>
+              </button>
+            )}
             {isAdmin && (
               <button 
                 onClick={() => setShowAnalytics(true)}
@@ -941,6 +953,15 @@ export default function App() {
                 <span>Admin</span>
               </button>
             )}
+            {isAdmin && (
+              <button
+                onClick={() => setShowWeeklyReport(true)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center space-x-2"
+              >
+                <Calendar className="w-4 h-4" />
+                <span>Weekly Report</span>
+              </button>
+            )}
             <button onClick={logout} className="bg-gray-700 text-white px-4 py-2 rounded-lg">Logout</button>
           </div>
         </div>
@@ -948,7 +969,10 @@ export default function App() {
         {/* Warning banner for approaching/late deadlines */}
         <DeadlineWarningBanner userId={user.id} />
         
-        <div className="grid lg:grid-cols-2 gap-4 mb-6">
+        {/* Time Entry UI - Hidden for Administrators */}
+        {!isAdmin && (
+          <>
+            <div className="grid lg:grid-cols-2 gap-4 mb-6">
           <div className="bg-white p-6 rounded-xl">
             <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
               <Plus className="text-blue-600" /> New Entry
@@ -1024,16 +1048,25 @@ export default function App() {
           </div>
           <div className="space-y-4">
             <div className="bg-white p-4 rounded-xl">
-              <h3 className="font-bold mb-2">Current Week</h3>
+              <h3 className="font-bold mb-2">Ready to Submit</h3>
               <p className="text-3xl font-bold text-blue-600">
                 {(openEntries.reduce((s, e) => s + (Number(e.hours) || 0), 0) || 0).toFixed(1)} hrs
               </p>
-              <p className="text-lg text-green-600">
+              <p className="text-lg font-semibold text-green-600">
                 {fmt.format(openEntries.reduce((s, e) => s + ((Number(e.hours) || 0) * (Number(e.rate) || 0)), 0) || 0)}
               </p>
-              <button onClick={submit} className="w-full mt-3 bg-green-600 text-white py-2 rounded-lg">
-                <FileText size={16} className="inline mr-2" /> Submit Invoice
-              </button>
+              {openEntries.length > 0 ? (
+                <button 
+                  onClick={submit} 
+                  className="w-full mt-3 bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-semibold transition-colors"
+                >
+                  <FileText size={16} className="inline mr-2" /> Submit Invoice Now
+                </button>
+              ) : (
+                <div className="w-full mt-3 bg-gray-100 text-gray-500 py-3 rounded-lg text-center">
+                  No entries to submit
+                </div>
+              )}
             </div>
             <div className="bg-white p-4 rounded-xl">
               <h3 className="font-bold mb-2">Submitted ({pendingInv.length})</h3>
@@ -1052,7 +1085,19 @@ export default function App() {
           </div>
         </div>
         <div className="bg-white p-6 rounded-xl mb-4">
-          <h2 className="text-xl font-bold mb-4">Open Entries ({openEntries.length})</h2>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold">Open Entries ({openEntries.length})</h2>
+            {/* Submit Invoice Button - Prominent placement in Time Entries */}
+            {openEntries.length > 0 && (
+              <button 
+                onClick={submit} 
+                className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-semibold transition-colors flex items-center gap-2"
+              >
+                <FileText size={18} /> 
+                Submit Invoice ({(openEntries.reduce((s, e) => s + (Number(e.hours) || 0), 0) || 0).toFixed(1)} hrs)
+              </button>
+            )}
+          </div>
           <div className="space-y-4 max-h-96 overflow-y-auto">
             {(() => {
               const groupedByDate = {};
@@ -1299,6 +1344,8 @@ export default function App() {
             </div>
           )}
         </div>
+      </>
+      )}
       </div>
       {viewInvoice && (
         <InvoiceModal invoice={viewInvoice} entries={entries} onClose={() => setViewInvoice(null)} onDownload={download} />
@@ -1316,6 +1363,11 @@ export default function App() {
         <AdminPanel 
           onClose={() => setShowAdminPanel(false)}
           onTagsUpdated={fetchTags}
+        />
+      )}
+      {showWeeklyReport && (
+        <WeeklyReportModal 
+          onClose={() => setShowWeeklyReport(false)}
         />
       )}
       {showAnalytics && (

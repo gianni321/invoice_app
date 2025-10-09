@@ -38,6 +38,7 @@ export const api = {
     settings: () => `${API_URL}/admin/settings`,
     settingsUpdate: () => `${API_URL}/admin/settings`,
     settingUpdate: (key) => `${API_URL}/admin/settings/${key}`,
+    weeklySummary: () => `${API_URL}/admin/weekly-summary`,
   },
   analytics: {
     burnRates: () => `${API_URL}/analytics/burn-rates`,

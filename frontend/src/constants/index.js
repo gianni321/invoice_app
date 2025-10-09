@@ -30,6 +30,7 @@ export const VALIDATION_RULES = {
   HOURS: {
     MIN: 0.25,
     MAX: 24,
+    MAX_VALUE: 24, // Legacy property for compatibility
     STEP: 0.25,
   },
   TASK: {
@@ -39,9 +40,30 @@ export const VALIDATION_RULES = {
   NOTES: {
     MAX_LENGTH: 500,
   },
+  DESCRIPTION: {
+    MIN_LENGTH: 5,
+    MAX_LENGTH: 500,
+  },
+  TAG: {
+    MIN_LENGTH: 1,
+    MAX_LENGTH: 50,
+  },
   PIN: {
     MIN_LENGTH: 4,
     MAX_LENGTH: 10,
+  },
+  EMAIL: {
+    PATTERN: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+  },
+  INVOICE: {
+    HOURLY_RATE: {
+      MIN: 0.01,
+      MAX: 1000,
+    },
+    AMOUNT: {
+      MIN: 0.01,
+      MAX: 100000,
+    },
   },
 };
 
@@ -82,6 +104,14 @@ export const ERROR_MESSAGES = {
   GENERIC_ERROR: 'An unexpected error occurred. Please try again.',
   LOGIN_FAILED: 'Invalid credentials. Please try again.',
   TOKEN_EXPIRED: 'Your session has expired. Please log in again.',
+  REQUIRED_FIELD: 'This field is required.',
+  INVALID_EMAIL: 'Please enter a valid email address.',
+  INVALID_HOURS: 'Hours must be a valid number between 0.25 and 24.',
+  INVALID_RATE: 'Rate must be a positive number.',
+  TOO_SHORT: 'This field is too short.',
+  TOO_LONG: 'This field is too long.',
+  INVALID_DATE: 'Please enter a valid date.',
+  INVALID_NUMBER: 'Please enter a valid number.',
 };
 
 // Success Messages
