@@ -2,8 +2,31 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { setAuthToken, clearAuthToken, getAuthHeaders } from '../config';
 import { toast } from 'react-toastify';
 
-const AuthContext = createContext();
+/**
+ * @typedef {Object} User
+ * @property {string} id - User ID
+ * @property {string} name - User display name
+ * @property {string} role - User role (admin/member)
+ * @property {number} rate - User hourly rate
+ */
 
+/**
+ * @typedef {Object} AuthContextValue
+ * @property {boolean} isLoggedIn - Whether user is authenticated
+ * @property {boolean} isAdmin - Whether user has admin privileges
+ * @property {User|null} user - Current user data
+ * @property {boolean} loading - Whether auth state is loading
+ * @property {Function} login - Login function
+ * @property {Function} logout - Logout function
+ */
+
+const AuthContext = createContext(/** @type {AuthContextValue|null} */ (null));
+
+/**
+ * Hook to access authentication context
+ * @returns {AuthContextValue} Authentication context value
+ * @throws {Error} When used outside AuthProvider
+ */
 export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {
@@ -12,6 +35,11 @@ export function useAuth() {
   return context;
 }
 
+/**
+ * Authentication provider component
+ * @param {Object} props
+ * @param {React.ReactNode} props.children - Child components
+ */
 export function AuthProvider({ children }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);

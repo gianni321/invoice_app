@@ -1,8 +1,28 @@
 import React from 'react';
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
+import { ERROR_MESSAGES } from '../constants';
+
+/**
+ * @typedef {Object} ErrorBoundaryState
+ * @property {boolean} hasError - Whether an error has occurred
+ * @property {Error|null} error - The error that occurred
+ * @property {Object|null} errorInfo - Additional error information
+ * @property {string|null} eventId - Unique error event ID
+ */
+
+/**
+ * @typedef {Object} ErrorBoundaryProps
+ * @property {React.ReactNode} children - Child components to render
+ * @property {Function} [fallback] - Custom fallback component
+ * @property {Function} [onError] - Error callback handler
+ * @property {boolean} [showStack] - Whether to show stack trace (dev mode)
+ */
 
 /**
  * Error Boundary component to catch and handle React runtime errors
+ * Provides comprehensive error handling with logging and user-friendly fallback UI
+ * @class ErrorBoundary
+ * @extends {React.Component}
  */
 export class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -174,6 +194,11 @@ export function withErrorBoundary(Component, fallback = null) {
 
 /**
  * Simple error fallback component for specific sections
+ * @param {Object} props
+ * @param {Error} props.error - The error that occurred
+ * @param {Function} props.resetError - Function to reset the error state
+ * @param {string} [props.componentName] - Name of the component that errored
+ * @returns {JSX.Element}
  */
 export function ErrorFallback({ error, resetError, componentName = 'Component' }) {
   return (
@@ -185,7 +210,7 @@ export function ErrorFallback({ error, resetError, componentName = 'Component' }
             {componentName} Error
           </h3>
           <p className="text-sm text-red-700 mb-3">
-            Something went wrong in this section. You can try refreshing or continue using other parts of the application.
+            {ERROR_MESSAGES.GENERIC_ERROR}
           </p>
           
           {process.env.NODE_ENV === 'development' && error && (
@@ -212,3 +237,37 @@ export function ErrorFallback({ error, resetError, componentName = 'Component' }
     </div>
   );
 }
+
+/**
+ * Higher-order component to wrap components with error boundary
+ * @param {React.Component} Component - Component to wrap
+ * @param {Object} errorBoundaryProps - Props for ErrorBoundary
+ * @returns {React.Component} Wrapped component
+ */
+export function withErrorBoundary(Component, errorBoundaryProps = {}) {
+  const WrappedComponent = React.forwardRef((props, ref) => (
+    <ErrorBoundary {...errorBoundaryProps}>
+      <Component {...props} ref={ref} />
+    </ErrorBoundary>
+  ));
+  
+  WrappedComponent.displayName = `withErrorBoundary(${Component.displayName || Component.name})`;
+  
+  return WrappedComponent;
+}
+
+/**
+ * Hook to handle errors in functional components
+ * @returns {Function} Error handler function
+ */
+export function useErrorHandler() {
+  return React.useCallback((error, errorInfo) => {
+    // Log error
+    console.error('Component error:', error, errorInfo);
+    
+    // You could also dispatch to a global error state here
+    // or show a toast notification
+  }, []);
+}
+
+export default ErrorBoundary;

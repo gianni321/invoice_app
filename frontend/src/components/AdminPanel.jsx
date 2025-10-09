@@ -1,9 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Settings, Tag, Building, Users, Save, Plus, Edit, Trash2, X, Check, BarChart3, ClipboardCopy, FileText, Calendar } from 'lucide-react';
 import { api, getAuthHeaders } from '../config';
 import { AnalyticsDashboard } from './AnalyticsDashboard';
+import { toast } from 'react-toastify';
+import { LoadingSpinner } from './Loading';
 
-export function AdminPanel({ onClose }) {
+/**
+ * @typedef {Object} AdminPanelProps
+ * @property {Function} onClose - Function to close the admin panel
+ */
+
+/**
+ * @typedef {Object} Tag
+ * @property {number} id - Tag ID
+ * @property {string} name - Tag name
+ * @property {string} color - Tag color
+ * @property {string} description - Tag description
+ * @property {boolean} active - Whether tag is active
+ */
+
+/**
+ * Admin panel component for managing application settings, tags, and analytics
+ * Optimized with React.memo and performance improvements
+ * @param {AdminPanelProps} props
+ * @returns {JSX.Element}
+ */
+export const AdminPanel = React.memo(function AdminPanel({ onClose }) {
   const [activeTab, setActiveTab] = useState('analytics');
   const [tags, setTags] = useState([]);
   const [companySettings, setCompanySettings] = useState({});
@@ -20,7 +42,11 @@ export function AdminPanel({ onClose }) {
     fetchCompanySettings();
   }, []);
 
-  const fetchTags = async () => {
+  /**
+   * Fetch tags from API
+   * Memoized to prevent unnecessary re-renders
+   */
+  const fetchTags = useCallback(async () => {
     try {
       const response = await fetch(api.admin.tags(), {
         headers: getAuthHeaders()
@@ -28,13 +54,20 @@ export function AdminPanel({ onClose }) {
       if (response.ok) {
         const data = await response.json();
         setTags(data);
+      } else {
+        toast.error('Failed to fetch tags');
       }
     } catch (err) {
       console.error('Error fetching tags:', err);
+      toast.error('Error loading tags');
     }
-  };
+  }, []);
 
-  const fetchCompanySettings = async () => {
+  /**
+   * Fetch company settings from API
+   * Memoized to prevent unnecessary re-renders
+   */
+  const fetchCompanySettings = useCallback(async () => {
     try {
       const response = await fetch(api.admin.settings(), {
         headers: getAuthHeaders()
@@ -42,11 +75,14 @@ export function AdminPanel({ onClose }) {
       if (response.ok) {
         const data = await response.json();
         setCompanySettings(data);
+      } else {
+        toast.error('Failed to fetch settings');
       }
     } catch (err) {
       console.error('Error fetching settings:', err);
+      toast.error('Error loading settings');
     }
-  };
+  }, []);
 
   const fetchWeeklySummary = async () => {
     try {
@@ -672,4 +708,4 @@ export function AdminPanel({ onClose }) {
       </div>
     </div>
   );
-}
+});

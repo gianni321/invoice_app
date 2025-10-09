@@ -4,8 +4,34 @@ import { api, getAuthHeaders } from '../config';
 import { toast } from 'react-toastify';
 import { DeadlineWarningBanner } from '../components/DeadlineStatus';
 import { BatchTimeEntry } from '../components/BatchTimeEntry';
+import { ValidationSchemas, ValidationRules } from '../utils/validation';
+import { formatDate, isToday } from '../utils/date';
+import { LoadingSpinner } from '../components/Loading';
 
-export function EntriesPage() {
+/**
+ * @typedef {Object} TimeEntry
+ * @property {number} id - Entry ID
+ * @property {number} hours - Hours worked
+ * @property {string} task - Task description
+ * @property {string} notes - Additional notes
+ * @property {string} date - Entry date
+ * @property {number|null} invoiceId - Associated invoice ID
+ */
+
+/**
+ * @typedef {Object} EntryFormData
+ * @property {string} hours - Hours as string for form input
+ * @property {string} task - Task description
+ * @property {string} notes - Additional notes
+ * @property {string} date - Entry date in ISO format
+ */
+
+/**
+ * Time entries management page with CRUD operations
+ * Optimized with React.memo, useCallback, and useMemo for performance
+ * @returns {JSX.Element}
+ */
+export const EntriesPage = React.memo(function EntriesPage() {
   // State for entries management
   const [entries, setEntries] = useState([]);
   const [edit, setEdit] = useState(null);
@@ -20,12 +46,39 @@ export function EntriesPage() {
     date: new Date().toISOString().split('T')[0]
   });
 
+  /**
+   * Computed values for performance optimization
+   */
+  const entriesStats = useMemo(() => {
+    const totalHours = entries.reduce((sum, entry) => sum + (entry.hours || 0), 0);
+    const totalEntries = entries.length;
+    const averageHours = totalEntries > 0 ? totalHours / totalEntries : 0;
+    
+    return {
+      totalHours: totalHours.toFixed(1),
+      totalEntries,
+      averageHours: averageHours.toFixed(1)
+    };
+  }, [entries]);
+
+  const todayEntries = useMemo(() => {
+    return entries.filter(entry => isToday(entry.date));
+  }, [entries]);
+
+  const canAddEntry = useMemo(() => {
+    return formData.hours && formData.task && formData.date;
+  }, [formData.hours, formData.task, formData.date]);
+
   // Fetch entries on component mount
   useEffect(() => {
     fetchEntries();
   }, []);
 
-  const fetchEntries = async () => {
+  /**
+   * Fetch entries from API with error handling
+   * Memoized to prevent unnecessary re-renders
+   */
+  const fetchEntries = useCallback(async () => {
     try {
       setLoading(true);
       const response = await fetch(api.entries.list(), {
@@ -44,26 +97,25 @@ export function EntriesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleSubmit = async (e) => {
+  /**
+   * Handle form submission for new time entries
+   * Memoized to prevent unnecessary re-renders
+   * @param {Event} e - Form event
+   */
+  const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
     
-    // Validation
-    const hours = Number.parseFloat(formData.hours);
-    if (!Number.isFinite(hours) || hours <= 0 || hours > 24) {
-      toast.error('Hours must be a positive number ≤ 24');
-      return;
-    }
+    // Validation using our validation utility
+    const validationResult = ValidationSchemas.timeEntry.validate({
+      description: formData.task,
+      hours: formData.hours,
+      date: formData.date
+    });
 
-    const task = formData.task?.trim();
-    if (!task) {
-      toast.error('Task description is required');
-      return;
-    }
-
-    if (!formData.date) {
-      toast.error('Date is required');
+    if (!validationResult.isValid) {
+      toast.error(validationResult.errors[0]);
       return;
     }
 
@@ -75,8 +127,8 @@ export function EntriesPage() {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          hours,
-          task,
+          hours: Number.parseFloat(formData.hours),
+          task: formData.task.trim(),
           notes: formData.notes?.trim() || '',
           date: formData.date
         })
@@ -100,7 +152,7 @@ export function EntriesPage() {
       console.error('Error adding entry:', error);
       toast.error('Error adding entry');
     }
-  };
+  }, [formData]);
 
   const handleEdit = useCallback(async (e) => {
     e.preventDefault();
@@ -487,4 +539,4 @@ export function EntriesPage() {
       )}
     </div>
   );
-}
+});

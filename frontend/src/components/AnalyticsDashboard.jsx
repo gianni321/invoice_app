@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -14,8 +14,26 @@ import {
   GripVertical
 } from 'lucide-react';
 import { api, getAuthHeaders } from '../config';
+import { toast } from 'react-toastify';
+import { LoadingSpinner } from './Loading';
+import { formatDate } from '../utils/date';
 
-export function AnalyticsDashboard() {
+/**
+ * @typedef {Object} AnalyticsData
+ * @property {number} weeklyExpense - Total weekly expense
+ * @property {number} activeMembers - Number of active team members
+ * @property {number} weeklyHours - Total weekly hours
+ * @property {number} avgHourlyRate - Average hourly rate
+ * @property {Array} teamBurnRates - Team burn rate data
+ * @property {Array} teamPerformance - Team performance metrics
+ */
+
+/**
+ * Analytics dashboard component for displaying team metrics and insights
+ * Optimized with React.memo and performance improvements
+ * @returns {JSX.Element}
+ */
+export const AnalyticsDashboard = React.memo(function AnalyticsDashboard() {
   const [analytics, setAnalytics] = useState({
     weeklyExpense: 0,
     activeMembers: 0,
@@ -30,7 +48,11 @@ export function AnalyticsDashboard() {
     fetchAnalytics();
   }, []);
 
-  const fetchAnalytics = async () => {
+  /**
+   * Fetch analytics data from API
+   * Memoized to prevent unnecessary re-renders
+   */
+  const fetchAnalytics = useCallback(async () => {
     try {
       setLoading(true);
       
@@ -40,6 +62,10 @@ export function AnalyticsDashboard() {
         fetch(`${api.analytics.weeklyExpenses()}`, { headers: getAuthHeaders() }),
         fetch(`${api.analytics.teamMetrics()}`, { headers: getAuthHeaders() })
       ]);
+
+      if (!burnRatesRes.ok || !weeklyExpenseRes.ok || !teamMetricsRes.ok) {
+        throw new Error('Failed to fetch analytics data');
+      }
 
       const burnRates = await burnRatesRes.json();
       const weeklyExpense = await weeklyExpenseRes.json();
@@ -60,6 +86,7 @@ export function AnalyticsDashboard() {
       });
     } catch (error) {
       console.error('Error fetching analytics:', error);
+      toast.error('Failed to load analytics data');
       // Fallback to demo data if API fails
       setAnalytics({
         weeklyExpense: 2450,
@@ -80,12 +107,40 @@ export function AnalyticsDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const formatCurrency = (amount) => new Intl.NumberFormat('en-US', { 
-    style: 'currency', 
-    currency: 'USD' 
-  }).format(amount);
+  /**
+   * Currency formatting function
+   * Memoized for performance
+   */
+  const formatCurrency = useCallback((amount) => {
+    return new Intl.NumberFormat('en-US', { 
+      style: 'currency', 
+      currency: 'USD' 
+    }).format(amount);
+  }, []);
+
+  /**
+   * Percentage formatting function
+   * Memoized for performance
+   */
+  const formatPercentage = useCallback((value) => {
+    return `${Math.round(value)}%`;
+  }, []);
+
+  /**
+   * Computed analytics summary
+   */
+  const analyticsSummary = useMemo(() => {
+    const { weeklyExpense, activeMembers, weeklyHours, avgHourlyRate } = analytics;
+    
+    return {
+      totalRevenue: formatCurrency(weeklyExpense),
+      averageRate: formatCurrency(avgHourlyRate),
+      totalHours: `${weeklyHours.toFixed(1)}h`,
+      teamSize: `${activeMembers} member${activeMembers !== 1 ? 's' : ''}`
+    };
+  }, [analytics, formatCurrency]);
 
   if (loading) {
     return (
@@ -236,4 +291,4 @@ export function AnalyticsDashboard() {
       </div>
     </div>
   );
-}
+});

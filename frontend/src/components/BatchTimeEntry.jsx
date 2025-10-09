@@ -1,14 +1,65 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { api, getAuthHeaders } from '../config';
 import { X, FileText, Upload, Eye, Check } from 'lucide-react';
+import { toast } from 'react-toastify';
+import { LoadingSpinner } from './Loading';
 
-export function BatchTimeEntry({ onClose, onSuccess }) {
+/**
+ * @typedef {Object} BatchTimeEntryProps
+ * @property {Function} onClose - Function to close the modal
+ * @property {Function} onSuccess - Function called on successful import
+ */
+
+/**
+ * @typedef {Object} PreviewRow
+ * @property {boolean} valid - Whether the row is valid
+ * @property {Object} parsed - Parsed entry data
+ * @property {string[]} errors - Validation errors
+ */
+
+/**
+ * Batch time entry component for importing multiple entries
+ * Optimized with React.memo and performance improvements
+ * @param {BatchTimeEntryProps} props
+ * @returns {JSX.Element}
+ */
+export const BatchTimeEntry = React.memo(function BatchTimeEntry({ onClose, onSuccess }) {
   const [input, setInput] = useState('');
   const [preview, setPreview] = useState(null);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState(null);
 
-  const handlePreview = async () => {
+  /**
+   * Computed values for performance optimization
+   */
+  const canPreview = useMemo(() => {
+    return input.trim().length > 0;
+  }, [input]);
+
+  const canImport = useMemo(() => {
+    return preview?.summary?.valid > 0;
+  }, [preview]);
+
+  const previewStats = useMemo(() => {
+    if (!preview) return null;
+    
+    return {
+      total: preview.summary.total || 0,
+      valid: preview.summary.valid || 0,
+      invalid: (preview.summary.total || 0) - (preview.summary.valid || 0)
+    };
+  }, [preview]);
+
+  /**
+   * Handle preview of batch entries
+   * Memoized to prevent unnecessary re-renders
+   */
+  const handlePreview = useCallback(async () => {
+    if (!input.trim()) {
+      toast.error('Please enter some data to preview');
+      return;
+    }
+
     try {
       setError(null);
       const response = await fetch(api.entries.batchPreview(), {
@@ -26,14 +77,28 @@ export function BatchTimeEntry({ onClose, onSuccess }) {
 
       const result = await response.json();
       setPreview(result);
+      
+      if (result.summary.valid === 0) {
+        toast.warning('No valid entries found in the input');
+      } else {
+        toast.success(`Found ${result.summary.valid} valid entries`);
+      }
     } catch (err) {
       setError('Failed to preview entries');
+      toast.error('Failed to preview entries');
       console.error('Preview error:', err);
     }
-  };
+  }, [input]);
 
-  const handleImport = async () => {
-    if (!preview?.rows?.length) return;
+  /**
+   * Handle import of previewed entries
+   * Memoized to prevent unnecessary re-renders
+   */
+  const handleImport = useCallback(async () => {
+    if (!preview?.rows?.length) {
+      toast.error('No entries to import');
+      return;
+    }
     
     try {
       setImporting(true);
@@ -45,6 +110,7 @@ export function BatchTimeEntry({ onClose, onSuccess }) {
 
       if (!validRows.length) {
         setError('No valid entries to import');
+        toast.error('No valid entries to import');
         return;
       }
 
@@ -62,15 +128,17 @@ export function BatchTimeEntry({ onClose, onSuccess }) {
       }
 
       const result = await response.json();
+      toast.success(`Successfully imported ${result.length} entries`);
       onSuccess?.(result);
       onClose?.();
     } catch (err) {
       setError('Failed to import entries');
+      toast.error('Failed to import entries');
       console.error('Import error:', err);
     } finally {
       setImporting(false);
     }
-  };
+  }, [preview, onSuccess, onClose]);
 
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
@@ -210,4 +278,4 @@ export function BatchTimeEntry({ onClose, onSuccess }) {
       </div>
     </div>
   );
-}
+});
