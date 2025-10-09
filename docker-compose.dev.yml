@@ -12,9 +12,8 @@ services:
       MYSQL_PASSWORD: invoice_pass
     ports:
       - "3306:3306"                # avoid clobbering local MySQL; change if you must use 3306
-#    volumes:
-##      - mysql_data:/var/lib/mysql
-#      - ./backend/mysql-init:/docker-entrypoint-initdb.d
+    volumes:
+      - ./backend/mysql-init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_password"]
       interval: 10s
