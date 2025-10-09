@@ -10,6 +10,7 @@ const adminRoutes = require('./routes/admin');
 const analyticsRoutes = require('./routes/analytics');
 const logger = require('./lib/logger');
 const SecurityConfig = require('./lib/security');
+const { HealthMonitor, requestLogger, errorTracker, performanceMonitor } = require('./lib/monitoring');
 const { 
   requestId, 
   requestLogging, 
@@ -71,6 +72,9 @@ app.use(requestId);
 app.use(requestLogging);
 app.use(performanceMonitoring);
 
+// Additional monitoring middleware
+app.use(performanceMonitor);
+
 // Request logging (replaced the previous simple logging)
 // app.use((req, res, next) => {
 //   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
@@ -95,10 +99,16 @@ app.use('*', notFoundHandler);
 
 // Error handling
 app.use(errorLogging);
+app.use(errorTracker);
+
+// Initialize health monitoring
+const Database = require('./database');
+const healthMonitor = new HealthMonitor(app, Database.db);
 
 const server = app.listen(PORT, '0.0.0.0', () => {
   logger.info(`🚀 Server running on http://localhost:${PORT}`);
   logger.info(`📊 API available at http://localhost:${PORT}/api`);
+  logger.info(`🏥 Health checks available at http://localhost:${PORT}/health`);
   logger.info('Server startup completed successfully');
 });
 

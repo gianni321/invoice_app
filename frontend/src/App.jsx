@@ -5,6 +5,7 @@ import { DeadlineWarningBanner } from './components/DeadlineStatus';
 import { BatchTimeEntry } from './components/BatchTimeEntry';
 import { AdminPanel } from './components/AdminPanel';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
+import monitoring, { UserAction } from './utils/monitoring';
 
 // Format currency
 const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
@@ -133,6 +134,14 @@ export default function App() {
   const [edit, setEdit] = useState(null);
   const [viewInvoice, setViewInvoice] = useState(null);
   const [showBatchEntry, setShowBatchEntry] = useState(false);
+
+  // Initialize monitoring when user logs in
+  useEffect(() => {
+    if (user) {
+      monitoring.initialize(user.name || user.id);
+      monitoring.trackEvent(UserAction.INVOICE_CREATED, { userId: user.name });
+    }
+  }, [user]);
 
   const fetchData = useCallback(async () => {
     try {

@@ -1,10 +1,28 @@
 import { create } from 'zustand';
+import { devtools, persist } from 'zustand/middleware';
 import { api, getAuthHeaders } from '../config';
+import { toast } from 'react-toastify';
 
 /**
- * Entries store for time entry management
+ * @typedef {Object} TimeEntry
+ * @property {number} id - Entry ID
+ * @property {number} userId - User ID  
+ * @property {number} hours - Hours worked
+ * @property {string} task - Task description
+ * @property {string} notes - Additional notes
+ * @property {string} date - Entry date
+ * @property {number|null} invoiceId - Associated invoice ID
+ * @property {string} createdAt - Creation timestamp
+ * @property {string} updatedAt - Update timestamp
  */
-export const useEntriesStore = create((set, get) => ({
+
+/**
+ * Enhanced entries store with persistence and devtools
+ */
+export const useEntriesStore = create()(
+  devtools(
+    persist(
+      (set, get) => ({
   // State
   entries: [],
   isLoading: false,
@@ -62,6 +80,7 @@ export const useEntriesStore = create((set, get) => ({
         error: errorMessage 
       });
       
+      toast.error(errorMessage);
       throw new Error(errorMessage);
     }
   },
@@ -221,5 +240,34 @@ export const useEntriesStore = create((set, get) => ({
       openEntries: entries.filter(e => !e.invoice_id).length,
       invoicedEntries: entries.filter(e => e.invoice_id).length
     };
-  }
-}));
+  },
+
+  /**
+   * Enhanced selectors for better performance
+   */
+  getOpenEntries: () => {
+    return get().entries.filter(entry => !entry.invoiceId);
+  },
+
+  getEntriesByDate: (date) => {
+    return get().entries.filter(entry => entry.date === date);
+  },
+
+  getTotalHours: () => {
+    return get().getFilteredEntries().reduce((sum, entry) => sum + entry.hours, 0);
+  },
+      }),
+      {
+        name: 'entries-storage',
+        partialize: (state) => ({
+          // Only persist entries and filters, not loading/error states
+          entries: state.entries,
+          filters: state.filters,
+        }),
+      }
+    ),
+    {
+      name: 'entries-store',
+    }
+  )
+);
