@@ -1,273 +1,168 @@
 import { create } from 'zustand';
-import { devtools, persist } from 'zustand/middleware';
 import { api, getAuthHeaders } from '../config';
-import { toast } from 'react-toastify';
 
 /**
- * @typedef {Object} TimeEntry
- * @property {number} id - Entry ID
- * @property {number} userId - User ID  
- * @property {number} hours - Hours worked
- * @property {string} task - Task description
- * @property {string} notes - Additional notes
- * @property {string} date - Entry date
- * @property {number|null} invoiceId - Associated invoice ID
- * @property {string} createdAt - Creation timestamp
- * @property {string} updatedAt - Update timestamp
+ * Enhanced entries store with proper state management
  */
-
-/**
- * Enhanced entries store with persistence and devtools
- */
-export const useEntriesStore = create()(
-  devtools(
-    persist(
-      (set, get) => ({
+export const useEntriesStore = create((set, get) => ({
   // State
   entries: [],
-  isLoading: false,
+  loading: false,
   error: null,
-  filters: {
-    scope: 'all', // 'all', 'open'
-    dateRange: null
-  },
+  editingEntry: null,
 
   // Actions
-  setEntries: (entries) => set({ entries, error: null }),
-  
-  setLoading: (isLoading) => set({ isLoading }),
+  setLoading: (loading) => set({ loading }),
   
   setError: (error) => set({ error }),
   
   clearError: () => set({ error: null }),
 
-  setFilters: (filters) => set({ filters: { ...get().filters, ...filters } }),
+  setEditingEntry: (entry) => set({ editingEntry: entry }),
 
-  fetchEntries: async (options = {}) => {
-    set({ isLoading: true, error: null });
+  // Fetch entries
+  fetchEntries: async (scope = 'open') => {
+    set({ loading: true, error: null });
     
     try {
-      const params = new URLSearchParams();
-      const { scope } = get().filters;
+      const response = await fetch(api.entries.list(scope), { 
+        headers: getAuthHeaders() 
+      });
       
-      if (scope && scope !== 'all') {
-        params.set('scope', scope);
+      if (!response.ok) {
+        throw new Error('Failed to fetch entries');
       }
       
-      // Add any additional options
-      Object.entries(options).forEach(([key, value]) => {
-        if (value !== null && value !== undefined) {
-          params.set(key, value);
-        }
-      });
-
-      const response = await api.get(`/entries?${params.toString()}`, {
-        headers: getAuthHeaders()
-      });
-      
+      const data = await response.json();
       set({ 
-        entries: response.data, 
-        isLoading: false, 
-        error: null 
+        entries: Array.isArray(data) ? data : [], 
+        loading: false 
       });
-      
-      return response.data;
     } catch (error) {
-      const errorMessage = error.response?.data?.error || 'Failed to fetch entries';
+      console.error('Error fetching entries:', error);
       set({ 
-        entries: [], 
-        isLoading: false, 
-        error: errorMessage 
+        error: error.message, 
+        loading: false 
       });
-      
-      toast.error(errorMessage);
-      throw new Error(errorMessage);
     }
   },
 
-  createEntry: async (entryData) => {
-    set({ isLoading: true, error: null });
+  // Add entry
+  addEntry: async (entryData) => {
+    set({ loading: true, error: null });
     
     try {
-      const response = await api.post('/entries', entryData, {
-        headers: getAuthHeaders()
+      const response = await fetch(api.entries.create(), {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(entryData)
       });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create entry');
+      }
+
+      const newEntry = await response.json();
       
-      const newEntry = response.data;
-      const currentEntries = get().entries;
-      
-      set({ 
-        entries: [newEntry, ...currentEntries], 
-        isLoading: false, 
-        error: null 
-      });
+      set(state => ({ 
+        entries: [newEntry, ...state.entries],
+        loading: false 
+      }));
       
       return newEntry;
     } catch (error) {
-      const errorMessage = error.response?.data?.error || 'Failed to create entry';
+      console.error('Error adding entry:', error);
       set({ 
-        isLoading: false, 
-        error: errorMessage 
+        error: error.message, 
+        loading: false 
       });
-      
-      throw new Error(errorMessage);
+      throw error;
     }
   },
 
-  updateEntry: async (entryId, updateData) => {
-    set({ isLoading: true, error: null });
+  // Update entry
+  updateEntry: async (id, entryData) => {
+    set({ loading: true, error: null });
     
     try {
-      const response = await api.put(`/entries/${entryId}`, updateData, {
-        headers: getAuthHeaders()
+      const response = await fetch(api.entries.update(id), {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(entryData)
       });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update entry');
+      }
+
+      const updatedEntry = await response.json();
       
-      const updatedEntry = response.data;
-      const currentEntries = get().entries;
-      
-      set({ 
-        entries: currentEntries.map(entry => 
-          entry.id === entryId ? updatedEntry : entry
-        ), 
-        isLoading: false, 
-        error: null 
-      });
+      set(state => ({
+        entries: state.entries.map(e => e.id === id ? updatedEntry : e),
+        editingEntry: null,
+        loading: false
+      }));
       
       return updatedEntry;
     } catch (error) {
-      const errorMessage = error.response?.data?.error || 'Failed to update entry';
+      console.error('Error updating entry:', error);
       set({ 
-        isLoading: false, 
-        error: errorMessage 
+        error: error.message, 
+        loading: false 
       });
-      
-      throw new Error(errorMessage);
+      throw error;
     }
   },
 
-  deleteEntry: async (entryId) => {
-    set({ isLoading: true, error: null });
+  // Delete entry
+  deleteEntry: async (id) => {
+    set({ loading: true, error: null });
     
     try {
-      await api.delete(`/entries/${entryId}`, {
+      const response = await fetch(api.entries.delete(id), {
+        method: 'DELETE',
         headers: getAuthHeaders()
       });
-      
-      const currentEntries = get().entries;
-      
-      set({ 
-        entries: currentEntries.filter(entry => entry.id !== entryId), 
-        isLoading: false, 
-        error: null 
-      });
-      
-      return true;
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete entry');
+      }
+
+      set(state => ({
+        entries: state.entries.filter(e => e.id !== id),
+        loading: false
+      }));
     } catch (error) {
-      const errorMessage = error.response?.data?.error || 'Failed to delete entry';
+      console.error('Error deleting entry:', error);
       set({ 
-        isLoading: false, 
-        error: errorMessage 
+        error: error.message, 
+        loading: false 
       });
-      
-      throw new Error(errorMessage);
+      throw error;
     }
   },
 
-  // Batch operations
-  batchImport: async (entries) => {
-    set({ isLoading: true, error: null });
-    
-    try {
-      const response = await api.post('/entries/batch', { entries }, {
-        headers: getAuthHeaders()
-      });
-      
-      const importedEntries = response.data;
-      const currentEntries = get().entries;
-      
-      set({ 
-        entries: [...importedEntries, ...currentEntries], 
-        isLoading: false, 
-        error: null 
-      });
-      
-      return importedEntries;
-    } catch (error) {
-      const errorMessage = error.response?.data?.error || 'Failed to import entries';
-      set({ 
-        isLoading: false, 
-        error: errorMessage 
-      });
-      
-      throw new Error(errorMessage);
-    }
-  },
-
-  // Get filtered entries
-  getFilteredEntries: () => {
-    const { entries, filters } = get();
-    
-    let filtered = [...entries];
-    
-    // Apply scope filter
-    if (filters.scope === 'open') {
-      filtered = filtered.filter(entry => !entry.invoice_id);
-    }
-    
-    // Apply date range filter
-    if (filters.dateRange) {
-      const { start, end } = filters.dateRange;
-      filtered = filtered.filter(entry => {
-        const entryDate = new Date(entry.date);
-        return entryDate >= start && entryDate <= end;
-      });
-    }
-    
-    return filtered;
-  },
-
-  // Get entry statistics
-  getEntryStats: () => {
-    const entries = get().getFilteredEntries();
-    
-    const totalHours = entries.reduce((sum, entry) => sum + (entry.hours || 0), 0);
-    const totalAmount = entries.reduce((sum, entry) => sum + (entry.hours * entry.rate || 0), 0);
-    
-    return {
-      totalEntries: entries.length,
-      totalHours,
-      totalAmount,
-      openEntries: entries.filter(e => !e.invoice_id).length,
-      invoicedEntries: entries.filter(e => e.invoice_id).length
-    };
-  },
-
-  /**
-   * Enhanced selectors for better performance
-   */
+  // Selectors
   getOpenEntries: () => {
-    return get().entries.filter(entry => !entry.invoiceId);
+    const { entries } = get();
+    return entries.filter(e => !e.invoiceId);
   },
 
   getEntriesByDate: (date) => {
-    return get().entries.filter(entry => entry.date === date);
+    const { entries } = get();
+    return entries.filter(e => e.date === date);
   },
 
   getTotalHours: () => {
-    return get().getFilteredEntries().reduce((sum, entry) => sum + entry.hours, 0);
+    const { entries } = get();
+    return entries.reduce((sum, e) => sum + (Number(e.hours) || 0), 0);
   },
-      }),
-      {
-        name: 'entries-storage',
-        partialize: (state) => ({
-          // Only persist entries and filters, not loading/error states
-          entries: state.entries,
-          filters: state.filters,
-        }),
-      }
-    ),
-    {
-      name: 'entries-store',
-    }
-  )
-);
+
+  getTotalAmount: () => {
+    const { entries } = get();
+    return entries.reduce((sum, e) => sum + ((Number(e.hours) || 0) * (Number(e.rate) || 0)), 0);
+  }
+}));

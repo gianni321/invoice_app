@@ -2,227 +2,252 @@ import { create } from 'zustand';
 import { api, getAuthHeaders } from '../config';
 
 /**
- * Invoices store for invoice management
+ * Enhanced invoices store with proper state management
  */
 export const useInvoicesStore = create((set, get) => ({
   // State
   invoices: [],
-  isLoading: false,
+  loading: false,
   error: null,
-  deadlineStatus: null,
 
   // Actions
-  setInvoices: (invoices) => set({ invoices, error: null }),
-  
-  setLoading: (isLoading) => set({ isLoading }),
+  setLoading: (loading) => set({ loading }),
   
   setError: (error) => set({ error }),
   
   clearError: () => set({ error: null }),
 
-  setDeadlineStatus: (deadlineStatus) => set({ deadlineStatus }),
-
+  // Fetch invoices
   fetchInvoices: async () => {
-    set({ isLoading: true, error: null });
+    set({ loading: true, error: null });
     
     try {
-      const response = await api.get('/invoices', {
-        headers: getAuthHeaders()
+      const response = await fetch(api.invoices.list(), { 
+        headers: getAuthHeaders() 
       });
       
+      if (!response.ok) {
+        throw new Error('Failed to fetch invoices');
+      }
+      
+      const data = await response.json();
       set({ 
-        invoices: response.data, 
-        isLoading: false, 
-        error: null 
+        invoices: Array.isArray(data) ? data : [], 
+        loading: false 
       });
-      
-      return response.data;
     } catch (error) {
-      const errorMessage = error.response?.data?.error || 'Failed to fetch invoices';
+      console.error('Error fetching invoices:', error);
       set({ 
-        invoices: [], 
-        isLoading: false, 
-        error: errorMessage 
+        error: error.message, 
+        loading: false 
       });
-      
-      throw new Error(errorMessage);
     }
   },
 
-  fetchDeadlineStatus: async () => {
-    try {
-      const response = await api.get('/invoices/deadline-status', {
-        headers: getAuthHeaders()
-      });
-      
-      set({ deadlineStatus: response.data });
-      return response.data;
-    } catch (error) {
-      console.error('Failed to fetch deadline status:', error);
-      set({ deadlineStatus: null });
-    }
-  },
-
-  createInvoice: async (entryIds) => {
-    set({ isLoading: true, error: null });
+  // Submit invoice
+  submitInvoice: async () => {
+    set({ loading: true, error: null });
     
     try {
-      const response = await api.post('/invoices', { entryIds }, {
+      const response = await fetch(api.invoices.submit(), {
+        method: 'POST',
         headers: getAuthHeaders()
       });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to submit invoice');
+      }
+
+      const newInvoice = await response.json();
       
-      const newInvoice = response.data;
-      const currentInvoices = get().invoices;
-      
-      set({ 
-        invoices: [newInvoice, ...currentInvoices], 
-        isLoading: false, 
-        error: null 
-      });
+      set(state => ({ 
+        invoices: [newInvoice, ...state.invoices],
+        loading: false 
+      }));
       
       return newInvoice;
     } catch (error) {
-      const errorMessage = error.response?.data?.error || 'Failed to create invoice';
+      console.error('Error submitting invoice:', error);
       set({ 
-        isLoading: false, 
-        error: errorMessage 
+        error: error.message, 
+        loading: false 
       });
-      
-      throw new Error(errorMessage);
+      throw error;
     }
   },
 
-  updateInvoiceStatus: async (invoiceId, status) => {
-    set({ isLoading: true, error: null });
+  // Approve invoice
+  approveInvoice: async (id) => {
+    set({ loading: true, error: null });
     
     try {
-      const response = await api.put(`/invoices/${invoiceId}/status`, { status }, {
+      const response = await fetch(api.invoices.approve(id), {
+        method: 'POST',
         headers: getAuthHeaders()
       });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to approve invoice');
+      }
+
+      const updatedInvoice = await response.json();
       
-      const updatedInvoice = response.data;
-      const currentInvoices = get().invoices;
-      
-      set({ 
-        invoices: currentInvoices.map(invoice => 
-          invoice.id === invoiceId ? updatedInvoice : invoice
-        ), 
-        isLoading: false, 
-        error: null 
-      });
+      set(state => ({
+        invoices: state.invoices.map(i => i.id === id ? updatedInvoice : i),
+        loading: false
+      }));
       
       return updatedInvoice;
     } catch (error) {
-      const errorMessage = error.response?.data?.error || 'Failed to update invoice status';
+      console.error('Error approving invoice:', error);
       set({ 
-        isLoading: false, 
-        error: errorMessage 
+        error: error.message, 
+        loading: false 
       });
-      
-      throw new Error(errorMessage);
+      throw error;
     }
   },
 
-  deleteInvoice: async (invoiceId) => {
-    set({ isLoading: true, error: null });
+  // Mark invoice as paid
+  markInvoicePaid: async (id) => {
+    set({ loading: true, error: null });
     
     try {
-      await api.delete(`/invoices/${invoiceId}`, {
+      const response = await fetch(api.invoices.markPaid(id), {
+        method: 'POST',
         headers: getAuthHeaders()
       });
-      
-      const currentInvoices = get().invoices;
-      
-      set({ 
-        invoices: currentInvoices.filter(invoice => invoice.id !== invoiceId), 
-        isLoading: false, 
-        error: null 
-      });
-      
-      return true;
-    } catch (error) {
-      const errorMessage = error.response?.data?.error || 'Failed to delete invoice';
-      set({ 
-        isLoading: false, 
-        error: errorMessage 
-      });
-      
-      throw new Error(errorMessage);
-    }
-  },
 
-  downloadInvoice: async (invoiceId) => {
-    try {
-      const response = await api.get(`/invoices/${invoiceId}/download`, {
-        headers: getAuthHeaders(),
-        responseType: 'blob'
-      });
-      
-      // Create blob link to download
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      
-      // Try to get filename from headers
-      const contentDisposition = response.headers['content-disposition'];
-      let filename = 'invoice.pdf';
-      
-      if (contentDisposition) {
-        const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(contentDisposition);
-        if (matches != null && matches[1]) {
-          filename = matches[1].replace(/['"]/g, '');
-        }
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to mark invoice as paid');
       }
+
+      const updatedInvoice = await response.json();
       
-      link.setAttribute('download', filename);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
+      set(state => ({
+        invoices: state.invoices.map(i => i.id === id ? updatedInvoice : i),
+        loading: false
+      }));
       
-      return true;
+      return updatedInvoice;
     } catch (error) {
-      const errorMessage = error.response?.data?.error || 'Failed to download invoice';
-      throw new Error(errorMessage);
+      console.error('Error marking invoice as paid:', error);
+      set({ 
+        error: error.message, 
+        loading: false 
+      });
+      throw error;
     }
   },
 
-  // Get invoice by ID
-  getInvoiceById: (invoiceId) => {
-    const { invoices } = get();
-    return invoices.find(invoice => invoice.id === invoiceId);
+  // Withdraw invoice
+  withdrawInvoice: async (id) => {
+    set({ loading: true, error: null });
+    
+    try {
+      const response = await fetch(api.invoices.withdraw(id), {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to withdraw invoice');
+      }
+
+      const result = await response.json();
+      
+      // Refresh invoices after withdrawal
+      await get().fetchInvoices();
+      
+      return result;
+    } catch (error) {
+      console.error('Error withdrawing invoice:', error);
+      set({ 
+        error: error.message, 
+        loading: false 
+      });
+      throw error;
+    }
   },
 
-  // Get invoice statistics
-  getInvoiceStats: () => {
-    const { invoices } = get();
-    
-    const totalInvoices = invoices.length;
-    const paidInvoices = invoices.filter(inv => inv.status === 'paid').length;
-    const submittedInvoices = invoices.filter(inv => inv.status === 'submitted').length;
-    const rejectedInvoices = invoices.filter(inv => inv.status === 'rejected').length;
-    
-    const totalAmount = invoices.reduce((sum, inv) => sum + (inv.total_amount || 0), 0);
-    const paidAmount = invoices
-      .filter(inv => inv.status === 'paid')
-      .reduce((sum, inv) => sum + (inv.total_amount || 0), 0);
-    
-    return {
-      totalInvoices,
-      paidInvoices,
-      submittedInvoices,
-      rejectedInvoices,
-      totalAmount,
-      paidAmount,
-      pendingAmount: totalAmount - paidAmount
-    };
+  // Export invoice PDF
+  exportInvoicePdf: async (id) => {
+    try {
+      const response = await fetch(api.invoices.exportPdf(id), {
+        method: 'GET',
+        headers: getAuthHeaders()
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to export PDF');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `invoice-${id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error exporting PDF:', error);
+      throw error;
+    }
   },
 
-  // Get recent invoices
-  getRecentInvoices: (limit = 5) => {
+  // Export invoice CSV
+  exportInvoiceCsv: async (id) => {
+    try {
+      const response = await fetch(api.invoices.exportCsv(id), {
+        method: 'GET',
+        headers: getAuthHeaders()
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to export CSV');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `invoice-${id}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error exporting CSV:', error);
+      throw error;
+    }
+  },
+
+  // Selectors
+  getInvoicesByUser: (userId) => {
     const { invoices } = get();
-    return invoices
-      .sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at))
-      .slice(0, limit);
+    return invoices.filter(i => i.userId === userId);
+  },
+
+  getPendingInvoices: (userId) => {
+    const { invoices } = get();
+    return invoices.filter(i => i.userId === userId && i.status === 'submitted');
+  },
+
+  getApprovedInvoices: (userId) => {
+    const { invoices } = get();
+    return invoices.filter(i => i.userId === userId && (i.status === 'approved' || i.status === 'paid'));
+  },
+
+  getPaidInvoices: (userId) => {
+    const { invoices } = get();
+    return invoices.filter(i => i.userId === userId && i.status === 'paid');
   }
 }));
