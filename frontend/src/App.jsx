@@ -966,8 +966,36 @@ export default function App() {
           </div>
         </div>
         
-        {/* Warning banner for approaching/late deadlines */}
-        <DeadlineWarningBanner userId={user.id} />
+        {/* Warning banner for approaching/late deadlines - Only for Users */}
+        {!isAdmin && <DeadlineWarningBanner userId={user.id} />}
+        
+        {/* Admin Dashboard - Only for Administrators */}
+        {isAdmin && (
+          <div className="bg-gradient-to-r from-purple-600 to-blue-600 text-white p-6 rounded-xl mb-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-3xl font-bold">Admin Dashboard</h1>
+                <p className="text-purple-100 mt-2">Manage invoices, users, and system settings</p>
+              </div>
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => setShowAnalytics(true)}
+                  className="bg-white bg-opacity-20 hover:bg-opacity-30 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors"
+                >
+                  <BarChart3 size={20} />
+                  <span>Analytics</span>
+                </button>
+                <button
+                  onClick={() => setShowAdminPanel(true)}
+                  className="bg-white bg-opacity-20 hover:bg-opacity-30 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors"
+                >
+                  <Settings size={20} />
+                  <span>Settings</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         
         {/* Time Entry UI - Hidden for Administrators */}
         {!isAdmin && (
@@ -1084,6 +1112,10 @@ export default function App() {
             </div>
           </div>
         </div>
+        )}
+        
+        {/* Open Entries - Only for Users */}
+        {!isAdmin && (
         <div className="bg-white p-6 rounded-xl mb-4">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-bold">Open Entries ({openEntries.length})</h2>
@@ -1198,6 +1230,10 @@ export default function App() {
             })()}
           </div>
         </div>
+        )}
+        
+        {/* Invoice History - Only for Users */}
+        {!isAdmin && (
         <div className="bg-white p-6 rounded-xl">
           <h2 className="text-xl font-bold mb-4">History</h2>
           {myInvoices.length === 0 ? (
@@ -1344,9 +1380,10 @@ export default function App() {
             </div>
           )}
         </div>
-      </>
-      )}
+        )}
       </div>
+      
+      {/* Modals */}
       {viewInvoice && (
         <InvoiceModal invoice={viewInvoice} entries={entries} onClose={() => setViewInvoice(null)} onDownload={download} />
       )}
