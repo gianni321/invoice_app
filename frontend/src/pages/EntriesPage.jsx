@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { Clock, Download, Plus, Trash2, PencilLine, Check, X, AlertCircle } from 'lucide-react';
+import { Clock, Download, Plus, Trash2, PencilLine, Check, X, AlertCircle, Settings, BarChart3 } from 'lucide-react';
 import { api, getAuthHeaders } from '../config';
 import { toast } from 'react-toastify';
 import { DeadlineWarningBanner } from '../components/DeadlineStatus';
@@ -7,6 +7,8 @@ import { BatchTimeEntry } from '../components/BatchTimeEntry';
 import { ValidationSchemas, ValidationRules } from '../utils/validation';
 import { formatDate, isToday } from '../utils/date';
 import { LoadingSpinner } from '../components/Loading';
+import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 /**
  * @typedef {Object} TimeEntry
@@ -32,6 +34,21 @@ import { LoadingSpinner } from '../components/Loading';
  * @returns {JSX.Element}
  */
 export const EntriesPage = React.memo(function EntriesPage() {
+  const { isAdmin, user } = useAuth();
+  const navigate = useNavigate();
+
+  // Redirect admins to admin page
+  useEffect(() => {
+    if (isAdmin) {
+      navigate('/admin', { replace: true });
+    }
+  }, [isAdmin, navigate]);
+
+  // Don't render anything for admins (they'll be redirected)
+  if (isAdmin) {
+    return <LoadingSpinner />;
+  }
+
   // State for entries management
   const [entries, setEntries] = useState([]);
   const [edit, setEdit] = useState(null);

@@ -26,6 +26,20 @@ function AdminRoute({ children }) {
   return children;
 }
 
+function RoleBasedRedirect() {
+  const { isLoggedIn, isAdmin } = useAuth();
+  
+  if (!isLoggedIn) {
+    return <Navigate to="/login" replace />;
+  }
+  
+  if (isAdmin) {
+    return <Navigate to="/admin" replace />;
+  }
+  
+  return <Navigate to="/entries" replace />;
+}
+
 function AppRoutes() {
   const { isLoggedIn } = useAuth();
 
@@ -34,7 +48,7 @@ function AppRoutes() {
       <Routes>
         <Route 
           path="/login" 
-          element={isLoggedIn ? <Navigate to="/entries" replace /> : <LoginPage />} 
+          element={isLoggedIn ? <Navigate to="/" replace /> : <LoginPage />} 
         />
         <Route 
           path="/entries" 
@@ -76,8 +90,8 @@ function AppRoutes() {
             </AdminRoute>
           } 
         />
-        <Route path="/" element={<Navigate to="/entries" replace />} />
-        <Route path="*" element={<Navigate to="/entries" replace />} />
+        <Route path="/" element={<RoleBasedRedirect />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <ToastContainer
         position="top-right"

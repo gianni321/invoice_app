@@ -1201,7 +1201,7 @@ export default function App() {
                             </div>
                           </div>
                         ) : (
-                          <div key={e.id} className="p-3 bg-white">
+                          <div key={e.id} className="p-3">
                             <div className="flex justify-between items-start">
                               <div className="flex-1">
                                 <div className="font-medium">
