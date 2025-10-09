@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Tag, Building, Users, Save, Plus, Edit, Trash2, X, Check, BarChart3 } from 'lucide-react';
+import { Settings, Tag, Building, Users, Save, Plus, Edit, Trash2, X, Check, BarChart3, ClipboardCopy, FileText, Calendar } from 'lucide-react';
 import { api, getAuthHeaders } from '../config';
 import { AnalyticsDashboard } from './AnalyticsDashboard';
 
@@ -7,6 +7,7 @@ export function AdminPanel({ onClose }) {
   const [activeTab, setActiveTab] = useState('analytics');
   const [tags, setTags] = useState([]);
   const [companySettings, setCompanySettings] = useState({});
+  const [weeklyData, setWeeklyData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -44,6 +45,26 @@ export function AdminPanel({ onClose }) {
       }
     } catch (err) {
       console.error('Error fetching settings:', err);
+    }
+  };
+
+  const fetchWeeklySummary = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${api.base}/api/admin/weekly-summary`, {
+        headers: getAuthHeaders()
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setWeeklyData(data);
+      } else {
+        setError('Failed to fetch weekly summary');
+      }
+    } catch (err) {
+      console.error('Error fetching weekly summary:', err);
+      setError('Error fetching weekly summary');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -143,8 +164,55 @@ export function AdminPanel({ onClose }) {
     }));
   };
 
+  const copyToSlack = () => {
+    if (!weeklyData) return;
+    
+    let slackText = '```\nWeekly Team Summary - ' + weeklyData.period.description + '\n\n';
+    
+    // Add categorized entries
+    if (weeklyData.categories.length > 0) {
+      slackText += 'Hours | Activity | Notes | User\n';
+      slackText += '------|----------|-------|-----\n';
+      
+      weeklyData.categories.forEach(category => {
+        slackText += `\n** ${category.tag.toUpperCase()} (${category.total_hours}h) **\n`;
+        category.entries.forEach(entry => {
+          const hours = entry.hours.toFixed(1);
+          const task = entry.task.length > 30 ? entry.task.substring(0, 27) + '...' : entry.task;
+          const notes = entry.notes.length > 20 ? entry.notes.substring(0, 17) + '...' : entry.notes;
+          slackText += `${hours} | ${task} | ${notes} | ${entry.user}\n`;
+        });
+      });
+    }
+    
+    // Add untagged entries if any
+    if (weeklyData.untagged.entry_count > 0) {
+      slackText += `\n** UNTAGGED (${weeklyData.untagged.total_hours}h) **\n`;
+      weeklyData.untagged.entries.slice(0, 10).forEach(entry => {
+        const hours = entry.hours.toFixed(1);
+        const task = entry.task.length > 30 ? entry.task.substring(0, 27) + '...' : entry.task;
+        const notes = entry.notes.length > 20 ? entry.notes.substring(0, 17) + '...' : entry.notes;
+        slackText += `${hours} | ${task} | ${notes} | ${entry.user}\n`;
+      });
+      if (weeklyData.untagged.entry_count > 10) {
+        slackText += `... and ${weeklyData.untagged.entry_count - 10} more untagged entries\n`;
+      }
+    }
+    
+    slackText += `\nTOTAL: ${weeklyData.summary.grand_total_hours.toFixed(1)} hours`;
+    slackText += '\n```';
+    
+    // Copy to clipboard
+    navigator.clipboard.writeText(slackText).then(() => {
+      setSuccess('Weekly summary copied to clipboard!');
+    }).catch(() => {
+      setError('Failed to copy to clipboard');
+    });
+  };
+
   const tabs = [
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+    { id: 'weekly', label: 'Weekly Summary', icon: FileText },
     { id: 'tags', label: 'Tag Management', icon: Tag },
     { id: 'company', label: 'Company Info', icon: Building },
     { id: 'users', label: 'User Management', icon: Users }
@@ -206,6 +274,166 @@ export function AdminPanel({ onClose }) {
         <div className="p-6 overflow-y-auto max-h-[calc(95vh-200px)]">
           {activeTab === 'analytics' && (
             <AnalyticsDashboard />
+          )}
+
+          {activeTab === 'weekly' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold">Weekly Team Summary</h3>
+                  <p className="text-gray-600">Generate Slack-formatted weekly reports for team activities</p>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={fetchWeeklySummary}
+                    disabled={loading}
+                    className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+                  >
+                    <Calendar size={16} />
+                    {loading ? 'Loading...' : 'Refresh Data'}
+                  </button>
+                  {weeklyData && (
+                    <button
+                      onClick={copyToSlack}
+                      className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
+                    >
+                      <ClipboardCopy size={16} />
+                      Copy for Slack
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {weeklyData ? (
+                <div className="space-y-6">
+                  {/* Period Info */}
+                  <div className="bg-blue-50 p-4 rounded-lg">
+                    <h4 className="font-medium text-blue-900">Report Period</h4>
+                    <p className="text-blue-700">{weeklyData.period.description}</p>
+                    <div className="mt-2 grid grid-cols-3 gap-4 text-sm">
+                      <div>
+                        <span className="text-blue-600">Total Hours:</span>
+                        <span className="font-bold ml-2">{weeklyData.summary.grand_total_hours.toFixed(1)}h</span>
+                      </div>
+                      <div>
+                        <span className="text-blue-600">Categories:</span>
+                        <span className="font-bold ml-2">{weeklyData.summary.total_categories}</span>
+                      </div>
+                      <div>
+                        <span className="text-blue-600">Untagged:</span>
+                        <span className="font-bold ml-2">{weeklyData.untagged.total_hours.toFixed(1)}h</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Categories */}
+                  {weeklyData.categories.length > 0 && (
+                    <div className="space-y-4">
+                      <h4 className="font-medium text-gray-900">Categorized Activities</h4>
+                      {weeklyData.categories.map((category, index) => (
+                        <div key={index} className="border rounded-lg p-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <h5 className="font-medium text-lg text-gray-800">
+                              {category.tag.toUpperCase()}
+                            </h5>
+                            <span className="bg-gray-100 px-3 py-1 rounded-full text-sm font-medium">
+                              {category.total_hours.toFixed(1)}h ({category.entry_count} entries)
+                            </span>
+                          </div>
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full text-sm">
+                              <thead>
+                                <tr className="border-b">
+                                  <th className="text-left py-2">Hours</th>
+                                  <th className="text-left py-2">Activity</th>
+                                  <th className="text-left py-2">Notes</th>
+                                  <th className="text-left py-2">User</th>
+                                  <th className="text-left py-2">Date</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {category.entries.map((entry, entryIndex) => (
+                                  <tr key={entryIndex} className="border-b border-gray-100">
+                                    <td className="py-2 font-medium">{entry.hours.toFixed(1)}</td>
+                                    <td className="py-2">{entry.task}</td>
+                                    <td className="py-2 text-gray-600">{entry.notes || '—'}</td>
+                                    <td className="py-2">{entry.user}</td>
+                                    <td className="py-2 text-gray-500">{new Date(entry.date + 'T12:00:00').toLocaleDateString()}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Untagged Entries */}
+                  {weeklyData.untagged.entry_count > 0 && (
+                    <div className="border rounded-lg p-4 bg-yellow-50">
+                      <div className="flex items-center justify-between mb-3">
+                        <h5 className="font-medium text-lg text-orange-800">
+                          UNTAGGED ENTRIES
+                        </h5>
+                        <span className="bg-orange-100 px-3 py-1 rounded-full text-sm font-medium text-orange-800">
+                          {weeklyData.untagged.total_hours.toFixed(1)}h ({weeklyData.untagged.entry_count} entries)
+                        </span>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-sm">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="text-left py-2">Hours</th>
+                              <th className="text-left py-2">Activity</th>
+                              <th className="text-left py-2">Notes</th>
+                              <th className="text-left py-2">User</th>
+                              <th className="text-left py-2">Date</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {weeklyData.untagged.entries.map((entry, entryIndex) => (
+                              <tr key={entryIndex} className="border-b border-gray-100">
+                                <td className="py-2 font-medium">{entry.hours.toFixed(1)}</td>
+                                <td className="py-2">{entry.task}</td>
+                                <td className="py-2 text-gray-600">{entry.notes || '—'}</td>
+                                <td className="py-2">{entry.user}</td>
+                                <td className="py-2 text-gray-500">{new Date(entry.date + 'T12:00:00').toLocaleDateString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {weeklyData.untagged.entry_count > weeklyData.untagged.entries.length && (
+                        <p className="text-orange-700 mt-2 text-sm">
+                          Showing first {weeklyData.untagged.entries.length} of {weeklyData.untagged.entry_count} untagged entries
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* No Data Message */}
+                  {weeklyData.categories.length === 0 && weeklyData.untagged.entry_count === 0 && (
+                    <div className="text-center py-8 text-gray-500">
+                      <FileText className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                      <p>No time entries found for this week.</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <FileText className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                  <p className="text-gray-600 mb-4">Click "Refresh Data" to load the current week's summary</p>
+                  <button
+                    onClick={fetchWeeklySummary}
+                    disabled={loading}
+                    className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+                  >
+                    {loading ? 'Loading...' : 'Load Weekly Summary'}
+                  </button>
+                </div>
+              )}
+            </div>
           )}
 
           {activeTab === 'tags' && (

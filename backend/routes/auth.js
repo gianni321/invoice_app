@@ -58,4 +58,34 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// Verify JWT token
+router.get('/verify', async (req, res) => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    
+    if (!token) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    // Get fresh user data
+    const user = await db.query('SELECT id, name, rate, role FROM users WHERE id = ?', [decoded.id]);
+    
+    if (!user.length) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    res.json({
+      id: user[0].id,
+      name: user[0].name,
+      rate: user[0].rate,
+      role: user[0].role
+    });
+  } catch (error) {
+    console.error('Token verification error:', error);
+    res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
 module.exports = router;

@@ -905,90 +905,6 @@ export default function App() {
     );
   }
 
-  if (isAdmin) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-purple-100 p-4">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="text-3xl font-bold">Admin Dashboard</h1>
-            <button onClick={logout} className="bg-gray-600 text-white px-4 py-2 rounded-lg flex items-center gap-2">
-              <Home size={20} /> Logout
-            </button>
-          </div>
-          <div className="grid grid-cols-3 gap-4 mb-6">
-            <div className="bg-yellow-50 p-4 rounded-xl">
-              <AlertCircle className="text-yellow-600 mb-2" />
-              <p className="text-2xl font-bold">{invoices.filter(i => i.status === 'submitted').length}</p>
-              <p className="text-sm">Submitted</p>
-            </div>
-            <div className="bg-green-50 p-4 rounded-xl">
-              <CheckCircle className="text-green-600 mb-2" />
-              <p className="text-2xl font-bold">{invoices.filter(i => i.status === 'approved').length}</p>
-              <p className="text-sm">Approved</p>
-            </div>
-            <div className="bg-purple-50 p-4 rounded-xl">
-              <DollarSign className="text-purple-600 mb-2" />
-              <p className="text-2xl font-bold">{invoices.filter(i => i.status === 'paid').length}</p>
-              <p className="text-sm">Paid</p>
-            </div>
-          </div>
-          <div className="bg-white p-6 rounded-xl">
-            <h2 className="text-xl font-bold mb-4">Invoices</h2>
-            {invoices.length === 0 ? (
-              <p className="text-gray-500">No invoices</p>
-            ) : (
-              invoices.map(inv => (
-                <div key={inv.id} className={`border-l-4 p-4 mb-4 rounded ${
-                  inv.status === 'submitted' ? 'border-yellow-500 bg-yellow-50' :
-                  inv.status === 'approved' ? 'border-green-500 bg-green-50' :
-                  'border-purple-500 bg-purple-50'
-                }`}>
-                  <div className="flex justify-between mb-2">
-                    <div>
-                      <h3 className="font-bold">{inv.userName}</h3>
-                      <p className="text-sm text-gray-600">{new Date(inv.date).toLocaleDateString()}</p>
-                      <p className="text-sm text-gray-600">{fmt.format(inv.total)}</p>
-                    </div>
-                    <span className={`px-3 py-1 rounded-full text-xs h-fit ${
-                      inv.status === 'submitted' ? 'bg-yellow-200' :
-                      inv.status === 'approved' ? 'bg-green-200' : 'bg-purple-200'
-                    }`}>
-                      {inv.status}
-                    </span>
-                  </div>
-                  <div className="flex gap-2 flex-wrap">
-                    <button onClick={() => setViewInvoice(inv)} className="bg-indigo-600 text-white px-3 py-1 rounded text-sm">
-                      View
-                    </button>
-                    <button onClick={() => download(inv)} className="bg-blue-600 text-white px-3 py-1 rounded text-sm">
-                      <Download size={14} className="inline" /> CSV
-                    </button>
-                    <button onClick={() => downloadPDF(inv)} className="bg-purple-600 text-white px-3 py-1 rounded text-sm">
-                      <FileText size={14} className="inline" /> PDF
-                    </button>
-                    {inv.status === 'submitted' && (
-                      <button onClick={() => approve(inv.id)} className="bg-green-600 text-white px-3 py-1 rounded text-sm">
-                        Approve
-                      </button>
-                    )}
-                    {inv.status === 'approved' && (
-                      <button onClick={() => markPaid(inv.id)} className="bg-purple-600 text-white px-3 py-1 rounded text-sm">
-                        Mark Paid
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-        {viewInvoice && (
-          <InvoiceModal invoice={viewInvoice} entries={entries} onClose={() => setViewInvoice(null)} onDownload={download} />
-        )}
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
       <div className="max-w-6xl mx-auto">
@@ -998,20 +914,24 @@ export default function App() {
             <p className="text-gray-600">Rate: {fmt.format(user.rate)}/hr</p>
           </div>
           <div className="flex items-center space-x-3">
-            <button 
-              onClick={() => setShowAnalytics(true)}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
-            >
-              <BarChart3 className="w-4 h-4" />
-              <span>Analytics</span>
-            </button>
-            <button 
-              onClick={() => setShowAdminPanel(true)}
-              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center space-x-2"
-            >
-              <Settings className="w-4 h-4" />
-              <span>Admin</span>
-            </button>
+            {isAdmin && (
+              <button 
+                onClick={() => setShowAnalytics(true)}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
+              >
+                <BarChart3 className="w-4 h-4" />
+                <span>Analytics</span>
+              </button>
+            )}
+            {isAdmin && (
+              <button 
+                onClick={() => setShowAdminPanel(true)}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center space-x-2"
+              >
+                <Settings className="w-4 h-4" />
+                <span>Admin</span>
+              </button>
+            )}
             <button onClick={logout} className="bg-gray-700 text-white px-4 py-2 rounded-lg">Logout</button>
           </div>
         </div>

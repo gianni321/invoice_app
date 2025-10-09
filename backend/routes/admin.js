@@ -372,4 +372,136 @@ router.put('/settings', authenticateToken, requireAdmin, async (req, res) => {
   }
 });
 
+// Weekly Summary endpoint for admin Slack reports
+router.get('/weekly-summary', requireAdmin, async (req, res) => {
+  try {
+    const { currentPeriod } = require('../lib/deadlines');
+    
+    // Get current week boundaries
+    const period = currentPeriod();
+    const startDate = period.start.toFormat('yyyy-MM-dd');
+    const endDate = period.end.toFormat('yyyy-MM-dd');
+    
+    // Query entries grouped by tag for the current week
+    const query = `
+      SELECT 
+        tag,
+        SUM(hours) AS total_hours,
+        COUNT(*) AS entry_count
+      FROM entries 
+      WHERE date BETWEEN ? AND ? 
+        AND tag IS NOT NULL 
+        AND tag != ''
+      GROUP BY tag
+      ORDER BY total_hours DESC
+    `;
+    
+    const tagSummary = await db.query(query, [startDate, endDate]);
+    
+    // Get detailed entries for each tag
+    const categories = [];
+    
+    for (const tagRow of tagSummary) {
+      const entriesQuery = `
+        SELECT id, hours, task, notes, date, user_id
+        FROM entries 
+        WHERE date BETWEEN ? AND ? 
+          AND tag = ?
+        ORDER BY date ASC, id ASC
+      `;
+      
+      const tagEntries = await db.query(entriesQuery, [startDate, endDate, tagRow.tag]);
+      
+      // Get user names for entries
+      const entriesWithUsers = [];
+      for (const entry of tagEntries) {
+        const userQuery = 'SELECT name FROM users WHERE id = ?';
+        const userResult = await db.query(userQuery, [entry.user_id]);
+        
+        entriesWithUsers.push({
+          id: entry.id,
+          hours: parseFloat(entry.hours),
+          task: entry.task,
+          notes: entry.notes || '',
+          date: entry.date,
+          user: userResult[0]?.name || 'Unknown'
+        });
+      }
+      
+      categories.push({
+        tag: tagRow.tag,
+        total_hours: parseFloat(tagRow.total_hours),
+        entry_count: tagRow.entry_count,
+        entries: entriesWithUsers
+      });
+    }
+    
+    // Also get entries without tags
+    const untaggedQuery = `
+      SELECT 
+        COUNT(*) AS entry_count,
+        SUM(hours) AS total_hours
+      FROM entries 
+      WHERE date BETWEEN ? AND ? 
+        AND (tag IS NULL OR tag = '')
+    `;
+    
+    const untaggedResult = await db.query(untaggedQuery, [startDate, endDate]);
+    const untaggedTotal = untaggedResult[0];
+    
+    // Get untagged entries details if any exist
+    let untaggedEntries = [];
+    if (untaggedTotal.entry_count > 0) {
+      const untaggedEntriesQuery = `
+        SELECT id, hours, task, notes, date, user_id
+        FROM entries 
+        WHERE date BETWEEN ? AND ? 
+          AND (tag IS NULL OR tag = '')
+        ORDER BY date ASC, id ASC
+        LIMIT 20
+      `;
+      
+      const rawUntagged = await db.query(untaggedEntriesQuery, [startDate, endDate]);
+      
+      for (const entry of rawUntagged) {
+        const userQuery = 'SELECT name FROM users WHERE id = ?';
+        const userResult = await db.query(userQuery, [entry.user_id]);
+        
+        untaggedEntries.push({
+          id: entry.id,
+          hours: parseFloat(entry.hours),
+          task: entry.task,
+          notes: entry.notes || '',
+          date: entry.date,
+          user: userResult[0]?.name || 'Unknown'
+        });
+      }
+    }
+    
+    res.json({
+      period: {
+        start: startDate,
+        end: endDate,
+        description: `${period.start.toFormat('MMM dd')} - ${period.end.toFormat('MMM dd, yyyy')}`
+      },
+      categories,
+      untagged: {
+        total_hours: parseFloat(untaggedTotal.total_hours || 0),
+        entry_count: untaggedTotal.entry_count,
+        entries: untaggedEntries
+      },
+      summary: {
+        total_categories: categories.length,
+        total_tagged_hours: categories.reduce((sum, cat) => sum + cat.total_hours, 0),
+        total_untagged_hours: parseFloat(untaggedTotal.total_hours || 0),
+        grand_total_hours: categories.reduce((sum, cat) => sum + cat.total_hours, 0) + parseFloat(untaggedTotal.total_hours || 0)
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error generating weekly summary:', error);
+    res.status(500).json({ error: 'Failed to generate weekly summary' });
+  }
+});
+
 module.exports = router;

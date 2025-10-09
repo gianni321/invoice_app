@@ -1,6 +1,7 @@
-export const API_URL = import.meta.env.VITE_API_URL || '/api';
+export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 export const api = {
+  base: 'http://localhost:3001',
   auth: {
     login: () => `${API_URL}/auth/login`,
   },
@@ -14,10 +15,12 @@ export const api = {
   },
   invoices: {
     list: () => `${API_URL}/invoices`,
+    create: () => `${API_URL}/invoices`,
     submit: () => `${API_URL}/invoices/submit`,
     approve: (id) => `${API_URL}/invoices/${id}/approve`,
     markPaid: (id) => `${API_URL}/invoices/${id}/paid`,
     withdraw: (id) => `${API_URL}/invoices/${id}/withdraw`,
+    download: (id) => `${API_URL}/invoices/${id}/download`,
     exportPdf: (id) => `${API_URL}/invoices/${id}/export/pdf`,
     exportCsv: (id) => `${API_URL}/invoices/${id}/export/csv`,
     deadlineStatus: () => `${API_URL}/invoices/deadline-status`,
@@ -47,15 +50,15 @@ export const api = {
 };
 
 export function getAuthToken() {
-  return localStorage.getItem('token');
+  return localStorage.getItem('auth_token');
 }
 
 export function setAuthToken(token) {
-  localStorage.setItem('token', token);
+  localStorage.setItem('auth_token', token);
 }
 
 export function clearAuthToken() {
-  localStorage.removeItem('token');
+  localStorage.removeItem('auth_token');
 }
 
 export function getAuthHeaders() {
