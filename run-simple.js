@@ -10,7 +10,7 @@ try {
 
 // Start backend
 console.log('📊 Starting backend server...');
-const backend = spawn('node', ['start.js'], {
+const backend = spawn('node', ['server.js'], {
   cwd: path.join(__dirname, 'backend'),
   stdio: 'pipe',
   detached: false

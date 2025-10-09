@@ -1,9 +1,10 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { Clock, Download, Lock, Home, Plus, Trash2, PencilLine, Check, X, FileText, CheckCircle, DollarSign, AlertCircle, Settings } from 'lucide-react';
+import { Clock, Download, Lock, Home, Plus, Trash2, PencilLine, Check, X, FileText, CheckCircle, DollarSign, AlertCircle, Settings, BarChart3 } from 'lucide-react';
 import { api, getAuthHeaders, setAuthToken, clearAuthToken } from './config';
 import { DeadlineWarningBanner } from './components/DeadlineStatus';
 import { BatchTimeEntry } from './components/BatchTimeEntry';
 import { AdminPanel } from './components/AdminPanel';
+import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 
 // Format currency
 const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
@@ -121,6 +122,7 @@ export default function App() {
   const [invoices, setInvoices] = useState([]);
   const [availableTags, setAvailableTags] = useState([]);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [showAnalytics, setShowAnalytics] = useState(false);
   const [form, setForm] = useState({ 
     hours: '', 
     task: '', 
@@ -997,6 +999,13 @@ export default function App() {
           </div>
           <div className="flex items-center space-x-3">
             <button 
+              onClick={() => setShowAnalytics(true)}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
+            >
+              <BarChart3 className="w-4 h-4" />
+              <span>Analytics</span>
+            </button>
+            <button 
               onClick={() => setShowAdminPanel(true)}
               className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center space-x-2"
             >
@@ -1379,6 +1388,30 @@ export default function App() {
           onClose={() => setShowAdminPanel(false)}
           onTagsUpdated={fetchTags}
         />
+      )}
+      {showAnalytics && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg w-full max-w-7xl mx-4 max-h-[95vh] overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="text-green-600" size={24} />
+                <h2 className="text-xl font-bold">Analytics Dashboard</h2>
+              </div>
+              <button
+                onClick={() => setShowAnalytics(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* Analytics Content */}
+            <div className="p-6 overflow-y-auto max-h-[calc(95vh-120px)]">
+              <AnalyticsDashboard />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
