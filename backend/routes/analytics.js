@@ -1,9 +1,10 @@
 const express = require('express');
 const db = require('../database');
-const { requireAdmin } = require('../middleware/auth');
+const { authenticateToken, requireAdmin } = require('../middleware/auth');
 const router = express.Router();
 
-// Middleware to ensure admin access
+// Middleware to ensure authenticated admin access
+router.use(authenticateToken);
 router.use(requireAdmin);
 
 // Get burn rates for all team members
@@ -100,8 +101,8 @@ router.get('/team-metrics', async (req, res) => {
         u.id,
         u.name,
         u.rate,
-        COALESCE(SUM(te.hours), 0) as totalHours,
-        COALESCE(SUM(te.hours * u.rate), 0) as revenue,
+        COALESCE(SUM(e.hours), 0) as totalHours,
+        COALESCE(SUM(e.hours * u.rate), 0) as revenue,
         COALESCE(COUNT(DISTINCT DATE(e.date)), 0) as activeDays,
         COALESCE(AVG(e.hours), 0) as avgHoursPerDay,
         CASE 
@@ -221,7 +222,7 @@ router.get('/budget-analysis', async (req, res) => {
   try {
     const query = `
       SELECT 
-        COALESCE(te.tag, 'Untagged') as project,
+        COALESCE(e.tag, 'Untagged') as project,
         COUNT(e.id) as entryCount,
         COALESCE(SUM(e.hours), 0) as totalHours,
         COALESCE(SUM(e.hours * u.rate), 0) as actualSpend,
