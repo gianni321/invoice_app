@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Tag, Building, Users, Save, Plus, Edit, Trash2, X, Check } from 'lucide-react';
+import { Settings, Tag, Building, Users, Save, Plus, Edit, Trash2, X, Check, BarChart3 } from 'lucide-react';
 import { api, getAuthHeaders } from '../config';
+import { AnalyticsDashboard } from './AnalyticsDashboard';
 
 export function AdminPanel({ onClose }) {
-  const [activeTab, setActiveTab] = useState('tags');
+  const [activeTab, setActiveTab] = useState('analytics');
   const [tags, setTags] = useState([]);
   const [companySettings, setCompanySettings] = useState({});
   const [loading, setLoading] = useState(false);
@@ -143,6 +144,7 @@ export function AdminPanel({ onClose }) {
   };
 
   const tabs = [
+    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'tags', label: 'Tag Management', icon: Tag },
     { id: 'company', label: 'Company Info', icon: Building },
     { id: 'users', label: 'User Management', icon: Users }
@@ -202,6 +204,10 @@ export function AdminPanel({ onClose }) {
 
         {/* Tab Content */}
         <div className="p-6 overflow-y-auto max-h-[calc(90vh-200px)]">
+          {activeTab === 'analytics' && (
+            <AnalyticsDashboard />
+          )}
+
           {activeTab === 'tags' && (
             <div className="space-y-6">
               <div className="flex items-center justify-between">

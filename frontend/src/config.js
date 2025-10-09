@@ -36,6 +36,14 @@ export const api = {
     settingsUpdate: () => `${API_URL}/admin/settings`,
     settingUpdate: (key) => `${API_URL}/admin/settings/${key}`,
   },
+  analytics: {
+    burnRates: () => `${API_URL}/analytics/burn-rates`,
+    weeklyExpenses: (week) => `${API_URL}/analytics/weekly-expenses${week ? `/${week}` : ''}`,
+    teamMetrics: () => `${API_URL}/analytics/team-metrics`,
+    invoicesByWeek: () => `${API_URL}/analytics/invoices-by-week`,
+    moveInvoice: (id) => `${API_URL}/analytics/invoices/${id}/move`,
+    budgetAnalysis: () => `${API_URL}/analytics/budget-analysis`,
+  },
 };
 
 export function getAuthToken() {

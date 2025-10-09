@@ -7,6 +7,7 @@ const authRoutes = require('./routes/auth');
 const entryRoutes = require('./routes/entries');
 const invoiceRoutes = require('./routes/invoices');
 const adminRoutes = require('./routes/admin');
+const analyticsRoutes = require('./routes/analytics');
 const logger = require('./lib/logger');
 const SecurityConfig = require('./lib/security');
 const { 
@@ -81,6 +82,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/entries', entryRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
