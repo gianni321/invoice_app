@@ -27,6 +27,14 @@ export const api = {
   admin: {
     getDeadlineSettings: () => `${API_URL}/admin/invoice-deadline`,
     setDeadlineSettings: () => `${API_URL}/admin/invoice-deadline`,
+    tags: () => `${API_URL}/admin/tags`,
+    tagsActive: () => `${API_URL}/admin/tags/active`,
+    tagCreate: () => `${API_URL}/admin/tags`,
+    tagUpdate: (id) => `${API_URL}/admin/tags/${id}`,
+    tagDelete: (id) => `${API_URL}/admin/tags/${id}`,
+    settings: () => `${API_URL}/admin/settings`,
+    settingsUpdate: () => `${API_URL}/admin/settings`,
+    settingUpdate: (key) => `${API_URL}/admin/settings/${key}`,
   },
 };
 

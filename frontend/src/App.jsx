@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { Clock, Download, Lock, Home, Plus, Trash2, PencilLine, Check, X, FileText, CheckCircle, DollarSign, AlertCircle } from 'lucide-react';
+import { Clock, Download, Lock, Home, Plus, Trash2, PencilLine, Check, X, FileText, CheckCircle, DollarSign, AlertCircle, Settings } from 'lucide-react';
 import { api, getAuthHeaders, setAuthToken, clearAuthToken } from './config';
 import { DeadlineWarningBanner } from './components/DeadlineStatus';
 import { BatchTimeEntry } from './components/BatchTimeEntry';
+import { AdminPanel } from './components/AdminPanel';
 
 // Format currency
 const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
@@ -89,7 +90,10 @@ function InvoiceModal({ invoice, entries, onClose, onDownload }) {
                       <div key={e.id} className="p-3 bg-white">
                         <div className="flex justify-between items-start">
                           <div className="flex-1">
-                            <div className="font-medium">{Number.isFinite(e.hours) ? e.hours : 0}h • {safeText(e.task)}</div>
+                            <div className="font-medium">
+                              {Number.isFinite(e.hours) ? e.hours : 0}h • {safeText(e.task)}
+                              {e.tag && <span className="ml-2 px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">{e.tag}</span>}
+                            </div>
                             {e.notes && <div className="text-sm text-gray-600 mt-1">{safeText(e.notes)}</div>}
                           </div>
                           <div className="text-green-600 font-semibold ml-4">{fmtUSD(e.amount)}</div>
@@ -115,11 +119,14 @@ export default function App() {
   const [err, setErr] = useState('');
   const [entries, setEntries] = useState([]);
   const [invoices, setInvoices] = useState([]);
+  const [availableTags, setAvailableTags] = useState([]);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [form, setForm] = useState({ 
     hours: '', 
     task: '', 
     notes: '',
-    date: new Date().toISOString().split('T')[0]
+    date: new Date().toISOString().split('T')[0],
+    tag: ''
   });
   const [edit, setEdit] = useState(null);
   const [viewInvoice, setViewInvoice] = useState(null);
@@ -214,7 +221,8 @@ export default function App() {
         date: form.date,                    // keep YYYY-MM-DD
         hours,                              // numeric!
         task: task,
-        notes: (form.notes || '').trim()
+        notes: (form.notes || '').trim(),
+        tag: form.tag || null
       };
       
       console.log('Submitting entry:', payload);
@@ -241,7 +249,8 @@ export default function App() {
         hours: '', 
         task: '', 
         notes: '',
-        date: new Date().toISOString().split('T')[0]
+        date: new Date().toISOString().split('T')[0],
+        tag: ''
       });
     } catch (error) {
       console.error('Error adding entry:', error);
@@ -295,7 +304,8 @@ export default function App() {
         hours,                              // numeric!
         task: task,
         notes: (edit.notes || '').trim(),
-        date: edit.date
+        date: edit.date,
+        tag: edit.tag || null
       };
       
       const response = await fetch(api.entries.update(edit.id), {
@@ -686,9 +696,9 @@ export default function App() {
     const invEntries = inv.entries || [];  // Changed from entries.filter(e => inv.entryIds.includes(e.id))
     const csv = [
       `Invoice for ${inv.userName}`,
-      `Date,Hours,Task,Notes,Rate,Amount`,
-      ...invEntries.map(e => `${new Date(e.date).toLocaleDateString()},${e.hours},${e.task},${e.notes},${e.rate},${e.hours * e.rate}`),
-      `,,,,Total,${inv.total}`
+      `Date,Hours,Task,Notes,Tag,Rate,Amount`,
+      ...invEntries.map(e => `${new Date(e.date).toLocaleDateString()},${e.hours},${e.task},${e.notes},${e.tag || ''},${e.rate},${e.hours * e.rate}`),
+      `,,,,,Total,${inv.total}`
     ].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -805,7 +815,11 @@ export default function App() {
                 </div>
                 ${dateEntries.map(e => `
                   <div class="entry">
-                    <div class="entry-task">${Number.isFinite(e.hours) ? e.hours : 0}h • ${safeText(e.task)} <span class="entry-amount">${fmtUSD(e.amount)}</span></div>
+                    <div class="entry-task">
+                      ${Number.isFinite(e.hours) ? e.hours : 0}h • ${safeText(e.task)}
+                      ${e.tag ? `<span style="margin-left: 8px; padding: 2px 6px; font-size: 10px; background-color: #dbeafe; color: #1e40af; border-radius: 4px;">${e.tag}</span>` : ''}
+                      <span class="entry-amount">${fmtUSD(e.amount)}</span>
+                    </div>
                     ${e.notes ? `<div class="entry-notes">${safeText(e.notes)}</div>` : ''}
                   </div>
                 `).join('')}
@@ -827,11 +841,31 @@ export default function App() {
     printWindow.document.close();
   };
 
+  const fetchTags = useCallback(async () => {
+    try {
+      const response = await fetch(api.admin.tagsActive(), { headers: getAuthHeaders() });
+      if (response.ok) {
+        const tagsData = await response.json();
+        setAvailableTags(Array.isArray(tagsData) ? tagsData : []);
+      }
+    } catch (error) {
+      console.error('Error fetching tags:', error);
+      // Fallback to default tags if API fails
+      setAvailableTags([
+        { name: 'Dev', color: '#10B981' },
+        { name: 'Bug', color: '#EF4444' },
+        { name: 'Call', color: '#8B5CF6' },
+        { name: 'Meeting', color: '#F59E0B' }
+      ]);
+    }
+  }, []);
+
   useEffect(() => {
     if (user) {
       fetchData();
+      fetchTags();
     }
-  }, [user, fetchData]);
+  }, [user, fetchData, fetchTags]);
 
   const myEntries = useMemo(() => entries.filter(e => e.userId === user?.id), [entries, user]);
   const openEntries = useMemo(() => Array.isArray(myEntries) ? myEntries : [], [myEntries]); // entries now only contains open entries
@@ -961,7 +995,16 @@ export default function App() {
             <h1 className="text-2xl font-bold">Welcome, {user.name}</h1>
             <p className="text-gray-600">Rate: {fmt.format(user.rate)}/hr</p>
           </div>
-          <button onClick={logout} className="bg-gray-700 text-white px-4 py-2 rounded-lg">Logout</button>
+          <div className="flex items-center space-x-3">
+            <button 
+              onClick={() => setShowAdminPanel(true)}
+              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center space-x-2"
+            >
+              <Settings className="w-4 h-4" />
+              <span>Admin</span>
+            </button>
+            <button onClick={logout} className="bg-gray-700 text-white px-4 py-2 rounded-lg">Logout</button>
+          </div>
         </div>
         
         {/* Warning banner for approaching/late deadlines */}
@@ -1002,6 +1045,21 @@ export default function App() {
                   placeholder="Task"
                   className="w-full px-3 py-2 border rounded-lg"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tag</label>
+                <select
+                  value={form.tag}
+                  onChange={e => setForm({ ...form, tag: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg"
+                >
+                  <option value="">Select tag</option>
+                  {availableTags.map(tag => (
+                    <option key={tag.name} value={tag.name}>
+                      {tag.description || tag.name}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
@@ -1099,6 +1157,18 @@ export default function App() {
                                 onChange={ev => setEdit({ ...edit, task: ev.target.value })}
                                 className="w-full px-2 py-1 border rounded"
                               />
+                              <select
+                                value={edit.tag || ''}
+                                onChange={ev => setEdit({ ...edit, tag: ev.target.value })}
+                                className="w-full px-2 py-1 border rounded"
+                              >
+                                <option value="">Select tag</option>
+                                {availableTags.map(tag => (
+                                  <option key={tag.name} value={tag.name}>
+                                    {tag.description || tag.name}
+                                  </option>
+                                ))}
+                              </select>
                               <textarea
                                 value={edit.notes}
                                 onChange={ev => setEdit({ ...edit, notes: ev.target.value })}
@@ -1119,7 +1189,10 @@ export default function App() {
                           <div key={e.id} className="p-3 bg-white">
                             <div className="flex justify-between items-start">
                               <div className="flex-1">
-                                <div className="font-medium">{e.hours}h • {e.task}</div>
+                                <div className="font-medium">
+                                  {e.hours}h • {e.task}
+                                  {e.tag && <span className="ml-2 px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">{e.tag}</span>}
+                                </div>
                                 {e.notes && <div className="text-sm text-gray-600 mt-1">{e.notes}</div>}
                               </div>
                               <div className="flex items-center gap-2 ml-4">
@@ -1299,6 +1372,12 @@ export default function App() {
             await fetchData();
             alert(`Successfully imported ${result.created} entries`);
           }}
+        />
+      )}
+      {showAdminPanel && (
+        <AdminPanel 
+          onClose={() => setShowAdminPanel(false)}
+          onTagsUpdated={fetchTags}
         />
       )}
     </div>

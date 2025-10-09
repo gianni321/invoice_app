@@ -35,7 +35,7 @@ router.get('/', authenticateToken, async (req, res) => {
 // Create new entry
 router.post('/', authenticateToken, async (req, res) => {
   try {
-    const { hours, task, notes, date } = req.body;
+    const { hours, task, notes, date, tag } = req.body;
 
     if (!task || !date) {
       return res.status(400).json({ error: 'Task and date are required' });
@@ -47,10 +47,23 @@ router.post('/', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Hours must be a valid number between 0 and 24' });
     }
 
+    // Validate tag if provided (check against active tags in database)
+    if (tag) {
+      const validTag = await db.get(
+        'SELECT name FROM tags WHERE name = ? AND is_active = 1',
+        [tag]
+      );
+      if (!validTag) {
+        const activeTags = await db.query('SELECT name FROM tags WHERE is_active = 1 ORDER BY sort_order ASC');
+        const tagNames = activeTags.map(t => t.name);
+        return res.status(400).json({ error: 'Invalid tag. Must be one of: ' + tagNames.join(', ') });
+      }
+    }
+
     const result = await db.run(
-      `INSERT INTO entries (user_id, hours, task, notes, date) 
-       VALUES (?, ?, ?, ?, ?)`,
-      [req.user.id, numericHours, task.trim(), (notes || '').trim(), date]
+      `INSERT INTO entries (user_id, hours, task, notes, date, tag) 
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [req.user.id, numericHours, task.trim(), (notes || '').trim(), date, tag || null]
     );
 
     // Get complete entry with user info
@@ -78,7 +91,7 @@ router.post('/', authenticateToken, async (req, res) => {
 router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { hours, task, notes, date } = req.body;
+    const { hours, task, notes, date, tag } = req.body;
 
     // Check if entry belongs to user and is not invoiced
     const entry = await db.get(
@@ -104,11 +117,24 @@ router.put('/:id', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Hours must be a valid number between 0 and 24' });
     }
 
+    // Validate tag if provided (check against active tags in database)
+    if (tag) {
+      const validTag = await db.get(
+        'SELECT name FROM tags WHERE name = ? AND is_active = 1',
+        [tag]
+      );
+      if (!validTag) {
+        const activeTags = await db.query('SELECT name FROM tags WHERE is_active = 1 ORDER BY sort_order ASC');
+        const tagNames = activeTags.map(t => t.name);
+        return res.status(400).json({ error: 'Invalid tag. Must be one of: ' + tagNames.join(', ') });
+      }
+    }
+
     await db.run(
       `UPDATE entries 
-       SET hours = ?, task = ?, notes = ?, date = ?, updated_at = CURRENT_TIMESTAMP 
+       SET hours = ?, task = ?, notes = ?, date = ?, tag = ?, updated_at = CURRENT_TIMESTAMP 
        WHERE id = ?`,
-      [numericHours, task.trim(), (notes || '').trim(), date, id]
+      [numericHours, task.trim(), (notes || '').trim(), date, tag || null, id]
     );
 
     const updated = await db.get(
