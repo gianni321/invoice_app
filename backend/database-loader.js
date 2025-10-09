@@ -1,14 +1,11 @@
-// Dynamic database loader - chooses between SQLite and MySQL based on environment
-const dbClient = process.env.DB_CLIENT || 'sqlite';
-
-let database;
-
-if (dbClient === 'mysql') {
-  console.log('Using MySQL database');
-  database = require('./database-mysql');
-} else {
-  console.log('Using SQLite database');
-  database = require('./database');
-}
-
-module.exports = database;
+const db = require('./database');
+(async () => {
+  try {
+    await db.initialize();
+    console.log('DB ready');
+  } catch (e) {
+    console.error('DB init failed:', e);
+    process.exit(1);
+  }
+})();
+module.exports = db;

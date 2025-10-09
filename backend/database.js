@@ -1,157 +1,129 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+const mysql = require('mysql2/promise');
 const bcrypt = require('bcryptjs');
 const fs = require('fs').promises;
-
-const DB_PATH = path.join(__dirname, 'timetracker.db');
+const path = require('path');
 
 class Database {
   constructor() {
-    this.db = new sqlite3.Database(DB_PATH, (err) => {
-      if (err) {
-        console.error('Database connection error:', err);
-      } else {
-        console.log('Connected to SQLite database');
-        this.initialize();
-      }
+    this.pool = mysql.createPool({
+      host: process.env.DB_HOST || 'db',
+      port: Number(process.env.DB_PORT || 3306),
+      user: process.env.DB_USER || 'invoice_user',
+      password: process.env.DB_PASS || process.env.DB_PASSWORD || 'invoice_pass',
+      database: process.env.DB_NAME || 'invoice_db',
+      waitForConnections: true,
+      connectionLimit: 10,
+      queueLimit: 0,
+      multipleStatements: true,
+      charset: 'utf8mb4',
+      timezone: 'Z',
     });
+    this.migrationsDir = path.join(__dirname, process.env.MIGRATIONS_DIR || 'migrations-mysql');
+    this.runMigrationsFlag = (process.env.RUN_MIGRATIONS ?? 'true') === 'true';
   }
 
-  async runMigrations() {
-    const migrationsDir = path.join(__dirname, 'migrations');
-    try {
-      const files = await fs.readdir(migrationsDir);
-      const migrations = files.filter(f => f.endsWith('.sql')).sort();
-      
-      for (const migration of migrations) {
-        const sql = await fs.readFile(path.join(migrationsDir, migration), 'utf8');
-        try {
-          await this.run(sql);
-          console.log(`Ran migration: ${migration}`);
-        } catch (migrationErr) {
-          // Ignore "duplicate column" errors as columns may already exist
-          if (migrationErr.message && migrationErr.message.includes('duplicate column')) {
-            console.log(`Skipped migration ${migration}: columns already exist`);
-          } else {
-            throw migrationErr;
-          }
-        }
-      }
-    } catch (err) {
-      console.error('Migration error:', err);
+  async initialize() {
+    await this.#waitForDB();
+    if (this.runMigrationsFlag) {
+      await this.#ensureMigrationsTable();
+      await this.#applyMigrations();
+    }
+    await this.#seedDemoUsers();
+  }
+
+  async query(sql, params = []) {
+    const [rows] = await this.pool.query(sql, params);
+    return rows;
+  }
+
+  async run(sql, params = []) {
+    const [res] = await this.pool.execute(sql, params);
+    return res;
+  }
+
+  async run(sql, params = []) {
+    // Parameterized single-statement writes
+    const [res] = await this.pool.execute(sql, params);
+    return res;
+  }
+
+  async runRaw(sql) {
+     // Multi-statement files (no params)
+     const [res] = await this.pool.query(sql); // allows multiple statements
+     return res;
+  }
+
+  async get(sql, params = []) {
+    const [rows] = await this.pool.query(sql, params);
+    return rows[0] || null;
+  }
+
+  async close() {
+    await this.pool.end();
+  }
+
+  // --- private ---
+
+  async #waitForDB(retries = 30, delayMs = 1000) {
+    for (let i = 0; i < retries; i++) {
+      try { await this.query('SELECT 1'); return; }
+      catch (e) { if (i === retries - 1) throw e; await new Promise(r => setTimeout(r, delayMs)); }
     }
   }
 
-  initialize() {
-    this.db.serialize(() => {
-      // Users table
-      this.db.run(`
-        CREATE TABLE IF NOT EXISTS users (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL,
-          pin_hash TEXT NOT NULL,
-          rate REAL NOT NULL,
-          role TEXT DEFAULT 'member',
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-
-      // Time entries table
-      this.db.run(`
-        CREATE TABLE IF NOT EXISTS entries (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER NOT NULL,
-          hours REAL NOT NULL,
-          task TEXT NOT NULL,
-          notes TEXT,
-          date TEXT NOT NULL,
-          invoice_id INTEGER,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (user_id) REFERENCES users(id)
-        )
-      `);
-
-      // Invoices table
-      this.db.run(`
-        CREATE TABLE IF NOT EXISTS invoices (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER NOT NULL,
-          total REAL NOT NULL,
-          status TEXT DEFAULT 'pending',
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          approved_at DATETIME,
-          paid_at DATETIME,
-          FOREIGN KEY (user_id) REFERENCES users(id)
-        )
-      `);
-
-      // Audit log table
-      this.db.run(`
-        CREATE TABLE IF NOT EXISTS audit_log (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER,
-          action TEXT NOT NULL,
-          details TEXT,
-          ip_address TEXT,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-
-      // Create demo users
-      this.createDemoUsers();
-      this.runMigrations();
-    });
+  async #ensureMigrationsTable() {
+    await this.run(`
+      CREATE TABLE IF NOT EXISTS _migrations (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        filename VARCHAR(255) NOT NULL UNIQUE,
+        applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB;
+    `);
   }
 
-  async createDemoUsers() {
-    const demoUsers = [
+  async #isApplied(filename) {
+    const row = await this.get(`SELECT 1 FROM _migrations WHERE filename = ?`, [filename]);
+    return !!row;
+  }
+
+  async #markApplied(filename) {
+    await this.run(`INSERT INTO _migrations (filename) VALUES (?)`, [filename]);
+  }
+
+  async #applyMigrations() {
+    let files;
+    try {
+      files = (await fs.readdir(this.migrationsDir))
+          .filter(f => f.toLowerCase().endsWith('.sql'))
+          .sort();
+    } catch (e) {
+      if (e.code === 'ENOENT') return;
+      throw e;
+    }
+
+    for (const file of files) {
+      if (await this.#isApplied(file)) continue;
+      const sql = await fs.readFile(path.join(this.migrationsDir, file), 'utf8');
+      await this.runRaw(sql);
+      await this.#markApplied(file);
+      console.log(`migration applied: ${file}`);
+    }
+  }
+
+  async #seedDemoUsers() {
+    const demo = [
       { name: 'Admin', pin: '0000', rate: 0, role: 'admin' },
       { name: 'John Smith', pin: '1234', rate: 75, role: 'member' },
       { name: 'Sarah Johnson', pin: '5678', rate: 85, role: 'member' },
       { name: 'Mike Chen', pin: '9012', rate: 70, role: 'member' },
     ];
-
-    for (const user of demoUsers) {
-      const pinHash = await bcrypt.hash(user.pin, 10);
-      
-      this.db.run(
-        `INSERT OR IGNORE INTO users (name, pin_hash, rate, role) 
-         SELECT ?, ?, ?, ? 
-         WHERE NOT EXISTS (SELECT 1 FROM users WHERE name = ?)`,
-        [user.name, pinHash, user.rate, user.role, user.name],
-        (err) => {
-          if (err) console.error('Error creating demo user:', err);
-        }
+    for (const u of demo) {
+      const pinHash = await bcrypt.hash(u.pin, 10);
+      await this.run(
+          `INSERT IGNORE INTO users (name, pin_hash, rate, role) VALUES (?,?,?,?)`,
+          [u.name, pinHash, u.rate, u.role]
       );
     }
-  }
-
-  query(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      this.db.all(sql, params, (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows);
-      });
-    });
-  }
-
-  run(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      this.db.run(sql, params, function(err) {
-        if (err) reject(err);
-        else resolve({ id: this.lastID, changes: this.changes });
-      });
-    });
-  }
-
-  get(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      this.db.get(sql, params, (err, row) => {
-        if (err) reject(err);
-        else resolve(row);
-      });
-    });
   }
 }
 
