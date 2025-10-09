@@ -13,7 +13,7 @@ import TimeEntryList from './components/TimeEntry/TimeEntryList';
 import DashboardStats from './components/Dashboard/DashboardStats';
 import AdminDashboard from './components/Admin/AdminDashboard';
 import UserDashboard from './components/User/UserDashboard';
-import InvoiceModal from './components/InvoiceModal';
+import { InvoiceModal } from './components/InvoiceModal';
 
 // Format currency
 const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
