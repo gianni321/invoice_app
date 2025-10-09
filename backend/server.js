@@ -1,4 +1,3 @@
-require('dotenv').config({ path: __dirname + '/.env' });
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -27,7 +26,7 @@ if (!process.env.JWT_SECRET || /change_this|^.{0,31}$/.test(process.env.JWT_SECR
 }
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = Number(process.env.PORT || 3001);
 
 // Log environment info
 logger.info('Starting server', SecurityConfig.getEnvironmentInfo());
@@ -36,16 +35,25 @@ logger.info('Starting server', SecurityConfig.getEnvironmentInfo());
 app.use(helmet(SecurityConfig.getSecurityHeaders()));
 
 // Parse CORS origins from environment variable
-const allowedOrigins = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
-  : ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:5173'];
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+       .split(',')
+   .map(s => s.trim())
+   .filter(Boolean);
+
+const defaultOrigins = [
+     'http://localhost:3000',
+     'http://localhost:5173',
+     'http://127.0.0.1:3000',
+     'http://127.0.0.1:5173'
+   ];
 
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.includes(origin)) {
+
+    const list = allowedOrigins.length ? allowedOrigins : defaultOrigins;
+    if (list.includes(origin)) {
       callback(null, true);
     } else {
       console.log('CORS blocked origin:', origin);
@@ -59,7 +67,14 @@ app.use(cors({
 }));
 
 // Rate limiting
-const limiter = rateLimit(SecurityConfig.getRateLimitConfig());
+
+const limiter = rateLimit({
+      windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000),
+      max: Number(process.env.RATE_LIMIT_MAX || 100),
+      standardHeaders: true,
+      legacyHeaders: false,
+     });
+
 app.use('/api/auth', limiter);
 
 // Middleware

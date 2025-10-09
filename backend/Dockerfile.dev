@@ -1,22 +1,21 @@
-# Debian-based = glibc (avoids musl issues with sqlite3)
 FROM node:20-bookworm-slim
 
-# Clean shutdowns; build tools for node-gyp; mysql-client for database operations
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      tini python3 build-essential mysql-client \
-    && rm -rf /var/lib/apt/lists/*
+    tini python3 build-essential mariadb-client \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install deps (dev included); inspector + nodemon
 COPY package*.json ./
-RUN npm install --include=dev && npm i -g nodemon
+RUN npm ci --include=dev && npm i -g nodemon
 
-# Bring in source (dev still bind-mounts, this just speeds first boot)
 COPY . .
 
 ENV NODE_ENV=development
-EXPOSE 3000 9229
+ENV PORT=3001
+ENV HOST=0.0.0.0
+
+EXPOSE 3001 9229
 
 ENTRYPOINT ["/usr/bin/tini","--"]
-CMD ["nodemon","--inspect=0.0.0.0:9229","--watch","." ,"--ext","js,json,env","server.js"]
+CMD ["nodemon","--inspect=0.0.0.0:9229","--watch",".","--ext","js,json","server.js"]

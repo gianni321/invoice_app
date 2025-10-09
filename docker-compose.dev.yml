@@ -1,0 +1,87 @@
+version: "3.9"
+
+services:
+  db:
+    image: mysql:8
+    container_name: tt-mysql-dev
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: invoice_db
+      MYSQL_USER: invoice_user
+      MYSQL_PASSWORD: invoice_pass
+    ports:
+      - "3307:3306"                # avoid clobbering local MySQL; change if you must use 3306
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backend/mysql-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_password"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: tt-api-dev
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: "3001"
+      # security
+      JWT_SECRET: "ThisIsADevJwtTokenDoNotUseItInProd!"
+      ALLOWED_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173"
+      RATE_LIMIT_WINDOW_MS: "900000"    # 15 min
+      RATE_LIMIT_MAX: "200"
+      # db (match your MySQL service)
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_USER: invoice_user
+      DB_PASS: invoice_pass
+      DB_NAME: invoice_db
+      # optional for local fallback loading of .env
+      LOAD_DOTENV: "false"
+    working_dir: /app
+    ports:
+      - "3001:3001"
+      - "9229:9229"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:3001/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  web:
+    image: node:20-alpine
+    container_name: tt-frontend-dev
+    restart: unless-stopped
+    working_dir: /app
+    environment:
+      - VITE_API_URL=http://localhost:3001
+      - VITE_ENV=development
+      - NODE_ENV=development
+    ports:
+      - "5173:5173"                # Vite default
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5173/"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  mysql_data:
