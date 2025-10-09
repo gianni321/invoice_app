@@ -11,6 +11,8 @@ import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import TimeEntryForm from './components/TimeEntry/TimeEntryForm';
 import TimeEntryList from './components/TimeEntry/TimeEntryList';
 import DashboardStats from './components/Dashboard/DashboardStats';
+import AdminDashboard from './components/Admin/AdminDashboard';
+import UserDashboard from './components/User/UserDashboard';
 import InvoiceModal from './components/InvoiceModal';
 
 // Format currency
@@ -257,76 +259,71 @@ export default function AppRefactored() {
           </div>
         </div>
         
-        {/* Warning banner */}
-        <DeadlineWarningBanner userId={user.id} />
+        {/* Warning banner - only for users */}
+        {!isAdmin && <DeadlineWarningBanner userId={user.id} />}
         
-        {/* Main content */}
-        <div className="grid lg:grid-cols-2 gap-4 mb-6">
-          {/* Time entry form */}
-          <TimeEntryForm 
-            onSubmit={handleAddEntry}
-            availableTags={availableTags}
-            loading={entriesStore.loading}
+        {/* Role-based main content */}
+        {isAdmin ? (
+          <AdminDashboard
+            onShowAnalytics={() => setShowAnalytics(true)}
+            onShowAdminPanel={() => setShowAdminPanel(true)}
           />
-          
-          {/* Dashboard stats */}
-          <DashboardStats
+        ) : (
+          <UserDashboard
+            user={user}
             openEntries={openEntries}
             pendingInvoices={pendingInvoices}
             approvedInvoices={approvedInvoices}
-            user={user}
+            availableTags={availableTags}
+            onAddEntry={handleAddEntry}
+            onUpdateEntry={handleUpdateEntry}
+            onDeleteEntry={handleDeleteEntry}
             onSubmitInvoice={handleSubmitInvoice}
+            onEditEntry={entriesStore.setEditingEntry}
+            editingEntry={entriesStore.editingEntry}
+            loading={entriesStore.loading}
           />
-        </div>
+        )}
 
-        {/* Time entries list */}
-        <TimeEntryList
-          entries={openEntries}
-          onEdit={entriesStore.setEditingEntry}
-          onDelete={handleDeleteEntry}
-          onSave={handleUpdateEntry}
-          editingId={entriesStore.editingEntry}
-          availableTags={availableTags}
-          user={user}
-        />
-
-        {/* Invoice history */}
-        <div className="bg-white p-6 rounded-xl">
-          <h2 className="text-xl font-bold mb-4">Invoice History</h2>
-          {myInvoices.length === 0 ? (
-            <p className="text-gray-500">No invoices yet</p>
-          ) : (
-            <div className="space-y-4">
-              {myInvoices.map(invoice => (
-                <div key={invoice.id} className="border rounded-lg p-4">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <p className="font-medium">Invoice #{invoice.id}</p>
-                      <p className="text-sm text-gray-600">
-                        {new Date(invoice.date).toLocaleDateString()} • {fmt.format(invoice.total)}
-                      </p>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                        invoice.status === 'submitted' ? 'bg-yellow-200 text-yellow-800' :
-                        invoice.status === 'approved' ? 'bg-green-200 text-green-800' :
-                        'bg-purple-200 text-purple-800'
-                      }`}>
-                        {invoice.status.toUpperCase()}
-                      </span>
-                      <button 
-                        onClick={() => setViewInvoice(invoice)}
-                        className="text-blue-600 hover:text-blue-800 text-sm"
-                      >
-                        View Details
-                      </button>
+        {/* Invoice history - only for users */}
+        {!isAdmin && (
+          <div className="bg-white p-6 rounded-xl">
+            <h2 className="text-xl font-bold mb-4">Invoice History</h2>
+            {myInvoices.length === 0 ? (
+              <p className="text-gray-500">No invoices yet</p>
+            ) : (
+              <div className="space-y-4">
+                {myInvoices.map(invoice => (
+                  <div key={invoice.id} className="border rounded-lg p-4">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <p className="font-medium">Invoice #{invoice.id}</p>
+                        <p className="text-sm text-gray-600">
+                          {new Date(invoice.date).toLocaleDateString()} • {fmt.format(invoice.total)}
+                        </p>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                          invoice.status === 'submitted' ? 'bg-yellow-200 text-yellow-800' :
+                          invoice.status === 'approved' ? 'bg-green-200 text-green-800' :
+                          'bg-purple-200 text-purple-800'
+                        }`}>
+                          {invoice.status.toUpperCase()}
+                        </span>
+                        <button 
+                          onClick={() => setViewInvoice(invoice)}
+                          className="text-blue-600 hover:text-blue-800 text-sm"
+                        >
+                          View Details
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Modals */}
