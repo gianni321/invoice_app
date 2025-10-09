@@ -265,7 +265,8 @@ export const AdminPanel = React.memo(function AdminPanel({ onClose }) {
           </div>
           <button
             onClick={onClose}
-            className="text-gray-500 hover:text-gray-700"
+            className="text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-100 transition-colors relative z-10"
+            style={{ pointerEvents: 'auto' }}
           >
             <X size={24} />
           </button>
