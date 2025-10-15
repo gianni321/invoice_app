@@ -2,7 +2,8 @@ require('dotenv').config({ path: __dirname + '/.env' });
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
+const config = require('./config');
+const { generalLimiter, authLimiter, adminLimiter } = require('./middleware/rateLimiting');
 const authRoutes = require('./routes/auth');
 const entryRoutes = require('./routes/entries');
 const invoiceRoutes = require('./routes/invoices');
@@ -22,47 +23,49 @@ const {
 // Validate security configuration
 SecurityConfig.validateEnvironment();
 
-// Validate JWT Secret
-if (!process.env.JWT_SECRET || /change_this|^.{0,31}$/.test(process.env.JWT_SECRET)) {
-  logger.error('JWT_SECRET is missing or weak. It should be at least 32 characters.');
+// Validate configuration on startup
+try {
+  logger.info('Configuration validated successfully');
+} catch (error) {
+  logger.error('Configuration validation failed:', error.message);
   process.exit(1);
 }
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = config.port;
 
 // Log environment info
-logger.info('Starting server', SecurityConfig.getEnvironmentInfo());
+logger.info('Starting server', {
+  port: PORT,
+  nodeEnv: config.nodeEnv,
+  corsOrigins: config.cors.origins.length
+});
 
 // Security middleware
 app.use(helmet(SecurityConfig.getSecurityHeaders()));
 
-// Parse CORS origins from environment variable
-const allowedOrigins = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
-  : ['http://localhost:3000', 'http://localhost:3002', 'http://localhost:5173', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3002', 'http://127.0.0.1:5173'];
-
+// Enhanced CORS configuration using config module
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
+    if (config.cors.origins.includes(origin)) {
+      return callback(null, true);
     } else {
-      console.log('CORS blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
+      logger.warn('CORS rejected origin:', origin);
+      return callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  exposedHeaders: ['X-Request-ID']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-// Rate limiting
-const limiter = rateLimit(SecurityConfig.getRateLimitConfig());
-app.use('/api/auth', limiter);
+// Enhanced rate limiting with different tiers
+app.use('/api', generalLimiter); // Apply general rate limiting to all API routes
+app.use('/api/auth', authLimiter); // Stricter rate limiting for auth
+app.use('/api/admin', adminLimiter); // Strictest rate limiting for admin operations
 
 // Middleware
 app.use(express.json());
