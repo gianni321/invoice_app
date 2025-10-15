@@ -109,9 +109,20 @@ rejections.log
 
 # Database files (development)
 timetracker.db
+backend/timetracker.db
 *.db-journal
 *.db-wal
 *.db-shm
 
 # Cleanup utilities
 cleanup.ps1
+
+# Debug and temporary files
+debug-*.js
+temp-*.js
+backend/debug-*.js
+backend/temp-*.js
+
+# Build artifacts
+*.tgz
+*.tar.gz

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Settings, Tag, Building, Users, Save, Plus, Edit, Trash2, X, Check, BarChart3, ClipboardCopy, FileText, Calendar } from 'lucide-react';
 import { api, getAuthHeaders } from '../config';
 import { AnalyticsDashboard } from './AnalyticsDashboard';
-import { toast } from 'react-toastify';
+import { useToast } from './Toast/ToastProvider';
 import { LoadingSpinner } from './Loading';
 
 /**
@@ -35,6 +35,8 @@ export const AdminPanel = React.memo(function AdminPanel({ onClose }) {
   const [success, setSuccess] = useState('');
   const [editingTag, setEditingTag] = useState(null);
   const [newTag, setNewTag] = useState({ name: '', color: '#3B82F6', description: '' });
+
+  const toast = useToast();
 
   // Fetch data on component mount
   useEffect(() => {

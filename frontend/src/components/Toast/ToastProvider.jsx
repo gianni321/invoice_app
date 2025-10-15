@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import { CheckCircle, XCircle, AlertCircle, Info, X } from 'lucide-react';
 
 const ToastContext = createContext();
@@ -55,14 +55,14 @@ const ToastProvider = ({ children }) => {
     return addToast({ type: 'info', message, ...options });
   }, [addToast]);
 
-  const value = {
+  const value = useMemo(() => ({
     addToast,
     removeToast,
     success,
     error,
     warning,
     info,
-  };
+  }), [addToast, removeToast, success, error, warning, info]);
 
   return (
     <ToastContext.Provider value={value}>

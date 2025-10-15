@@ -13,8 +13,11 @@ import {
 import { useInvoicesStore } from '../../stores/invoicesStore';
 import { useToast } from '../Toast/ToastProvider';
 
-const AdminDashboard = ({ onShowAnalytics, onShowAdminPanel }) => {
-  const invoicesStore = useInvoicesStore();
+const AdminDashboard = ({ onShowAnalytics, onShowAdminPanel, onViewInvoice }) => {
+  // Use selective subscriptions to avoid re-renders
+  const invoices = useInvoicesStore(state => state.invoices);
+  const invoicesLoading = useInvoicesStore(state => state.loading);
+  
   const toast = useToast();
   const [stats, setStats] = useState({
     totalInvoices: 0,
@@ -28,15 +31,15 @@ const AdminDashboard = ({ onShowAnalytics, onShowAdminPanel }) => {
   // Fetch admin data
   const fetchAdminData = useCallback(async () => {
     try {
-      await invoicesStore.fetchInvoices();
+      await useInvoicesStore.getState().fetchInvoices();
       
       // Calculate stats from invoices
-      const invoices = invoicesStore.invoices;
-      const totalInvoices = invoices.length;
-      const pendingInvoices = invoices.filter(i => i.status === 'submitted').length;
-      const approvedInvoices = invoices.filter(i => i.status === 'approved').length;
-      const paidInvoices = invoices.filter(i => i.status === 'paid').length;
-      const totalRevenue = invoices
+      const currentInvoices = useInvoicesStore.getState().invoices;
+      const totalInvoices = currentInvoices.length;
+      const pendingInvoices = currentInvoices.filter(i => i.status === 'submitted').length;
+      const approvedInvoices = currentInvoices.filter(i => i.status === 'approved').length;
+      const paidInvoices = currentInvoices.filter(i => i.status === 'paid').length;
+      const totalRevenue = currentInvoices
         .filter(i => i.status === 'paid')
         .reduce((sum, i) => sum + i.total, 0);
       
@@ -55,7 +58,7 @@ const AdminDashboard = ({ onShowAnalytics, onShowAdminPanel }) => {
       console.error('Error fetching admin data:', error);
       toast.error('Failed to load admin data');
     }
-  }, [invoicesStore, toast]);
+  }, [toast]);
 
   useEffect(() => {
     fetchAdminData();
@@ -70,7 +73,7 @@ const AdminDashboard = ({ onShowAnalytics, onShowAdminPanel }) => {
 
   const handleApproveInvoice = async (invoiceId) => {
     try {
-      await invoicesStore.approveInvoice(invoiceId);
+      await useInvoicesStore.getState().approveInvoice(invoiceId);
       toast.success('Invoice approved successfully!');
       await fetchAdminData(); // Refresh data
     } catch (error) {
@@ -80,7 +83,7 @@ const AdminDashboard = ({ onShowAnalytics, onShowAdminPanel }) => {
 
   const handleMarkPaid = async (invoiceId) => {
     try {
-      await invoicesStore.markInvoicePaid(invoiceId);
+      await useInvoicesStore.getState().markInvoicePaid(invoiceId);
       toast.success('Invoice marked as paid!');
       await fetchAdminData(); // Refresh data
     } catch (error) {
@@ -88,8 +91,8 @@ const AdminDashboard = ({ onShowAnalytics, onShowAdminPanel }) => {
     }
   };
 
-  const pendingInvoices = invoicesStore.invoices.filter(i => i.status === 'submitted');
-  const approvedInvoices = invoicesStore.invoices.filter(i => i.status === 'approved');
+  const pendingInvoices = invoices.filter(i => i.status === 'submitted');
+  const approvedInvoices = invoices.filter(i => i.status === 'approved');
 
   return (
     <div className="space-y-6">
@@ -196,7 +199,7 @@ const AdminDashboard = ({ onShowAnalytics, onShowAdminPanel }) => {
                         Approve
                       </button>
                       <button
-                        onClick={() => window.open(`/invoices/${invoice.id}`, '_blank')}
+                        onClick={() => onViewInvoice(invoice)}
                         className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
                       >
                         View
@@ -244,7 +247,7 @@ const AdminDashboard = ({ onShowAnalytics, onShowAdminPanel }) => {
                         Mark Paid
                       </button>
                       <button
-                        onClick={() => window.open(`/invoices/${invoice.id}`, '_blank')}
+                        onClick={() => onViewInvoice(invoice)}
                         className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
                       >
                         View

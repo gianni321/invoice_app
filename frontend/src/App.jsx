@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { Lock, Settings, BarChart3 } from 'lucide-react';
 import { api, getAuthHeaders, setAuthToken, clearAuthToken } from './config';
 import { useEntriesStore } from './stores/entriesStore';
@@ -32,23 +32,15 @@ export default function AppRefactored() {
   const [viewInvoice, setViewInvoice] = useState(null);
   const [availableTags, setAvailableTags] = useState([]);
 
-  // Stores
-  const entriesStore = useEntriesStore();
-  const invoicesStore = useInvoicesStore();
+  // Stores - use selective subscriptions to avoid re-renders
+  const entries = useEntriesStore(state => state.entries);
+  const entriesLoading = useEntriesStore(state => state.loading);
+  const editingEntry = useEntriesStore(state => state.editingEntry);
+  
+  const invoices = useInvoicesStore(state => state.invoices);
+  const invoicesLoading = useInvoicesStore(state => state.loading);
+  
   const toast = useToast();
-
-  // Fetch data on user login
-  const fetchData = useCallback(async () => {
-    try {
-      await Promise.all([
-        entriesStore.fetchEntries('open'),
-        invoicesStore.fetchInvoices()
-      ]);
-    } catch (error) {
-      console.error('Error fetching data:', error);
-      toast.error('Failed to load data');
-    }
-  }, [entriesStore, invoicesStore, toast]);
 
   // Login function
   const login = useCallback(async () => {
@@ -70,14 +62,14 @@ export default function AppRefactored() {
       setPin('');
       setErr('');
       
-      await fetchData();
+      // Data will be fetched by useEffect when user changes
       toast.success(`Welcome back, ${data.user.name}!`);
     } catch (error) {
       console.error('Login error:', error);
       setErr('Invalid PIN');
       toast.error('Login failed - please check your PIN');
     }
-  }, [pin, fetchData, toast]);
+  }, [pin, toast]);
 
   // Logout function
   const logout = useCallback(() => {
@@ -86,36 +78,35 @@ export default function AppRefactored() {
     setPin('');
     setErr('');
     clearAuthToken();
-    entriesStore.entries = [];
-    invoicesStore.invoices = [];
+    // No need to manually clear store data - they will be cleared on next fetch
     toast.info('Logged out successfully');
-  }, [entriesStore, invoicesStore, toast]);
+  }, [toast]);
 
   // Add entry function
   const handleAddEntry = useCallback(async (entryData) => {
     try {
-      await entriesStore.addEntry(entryData);
+      await useEntriesStore.getState().addEntry(entryData);
       toast.success('Time entry added successfully!');
     } catch (error) {
       toast.error(error.message || 'Failed to add entry');
       throw error;
     }
-  }, [entriesStore, toast]);
+  }, [toast]);
 
   // Update entry function
   const handleUpdateEntry = useCallback(async (entryData) => {
     try {
-      await entriesStore.updateEntry(entryData.id, entryData);
+      await useEntriesStore.getState().updateEntry(entryData.id, entryData);
       toast.success('Time entry updated successfully!');
     } catch (error) {
       toast.error(error.message || 'Failed to update entry');
       throw error;
     }
-  }, [entriesStore, toast]);
+  }, [toast]);
 
   // Delete entry function
   const handleDeleteEntry = useCallback(async (id) => {
-    const entry = entriesStore.entries.find(e => e.id === id);
+    const entry = entries.find(e => e.id === id);
     if (entry?.invoiceId) {
       toast.error('Cannot delete invoiced entry');
       return;
@@ -124,35 +115,35 @@ export default function AppRefactored() {
     if (!confirm('Delete this entry?')) return;
 
     try {
-      await entriesStore.deleteEntry(id);
+      await useEntriesStore.getState().deleteEntry(id);
       toast.success('Time entry deleted successfully!');
     } catch (error) {
       toast.error(error.message || 'Failed to delete entry');
     }
-  }, [entriesStore, toast]);
+  }, [entries, toast]);
 
   // Submit invoice function
   const handleSubmitInvoice = useCallback(async () => {
-    const openEntries = entriesStore.getOpenEntries();
-    if (!openEntries.length) {
+    const currentOpenEntries = useEntriesStore.getState().getOpenEntries();
+    if (!currentOpenEntries.length) {
       toast.warning('No open entries to submit');
       return;
     }
 
     try {
-      const invoice = await invoicesStore.submitInvoice();
+      const invoice = await useInvoicesStore.getState().submitInvoice();
       
-      // Remove submitted entries from entries list
-      entriesStore.entries = entriesStore.entries.filter(e => !openEntries.find(oe => oe.id === e.id));
+      // Refresh entries to reflect the invoiced status
+      await useEntriesStore.getState().fetchEntries('open');
       
       toast.success(`Invoice submitted successfully! Invoice #${invoice.id} for ${fmt.format(invoice.total)}`);
     } catch (error) {
       toast.error(error.message || 'Failed to submit invoice');
     }
-  }, [entriesStore, invoicesStore, toast]);
+  }, [toast]);
 
-  // Fetch tags
-  const fetchTags = useCallback(async () => {
+  // Function to refresh tags (for AdminPanel)
+  const refreshTags = useCallback(async () => {
     try {
       const response = await fetch(api.admin.tagsActive(), { headers: getAuthHeaders() });
       if (response.ok) {
@@ -174,16 +165,48 @@ export default function AppRefactored() {
   // Effects
   useEffect(() => {
     if (user) {
-      fetchData();
-      fetchTags();
-    }
-  }, [user, fetchData, fetchTags]);
+      // Fetch data directly using store methods to avoid dependency issues
+      const loadData = async () => {
+        try {
+          await Promise.all([
+            useEntriesStore.getState().fetchEntries('open'),
+            useInvoicesStore.getState().fetchInvoices()
+          ]);
+        } catch (error) {
+          console.error('Error fetching data:', error);
+        }
+      };
 
-  // Computed values
-  const openEntries = entriesStore.getOpenEntries();
-  const myInvoices = invoicesStore.getInvoicesByUser(user?.id);
-  const pendingInvoices = invoicesStore.getPendingInvoices(user?.id);
-  const approvedInvoices = invoicesStore.getApprovedInvoices(user?.id);
+      // Fetch tags directly in useEffect
+      const loadTags = async () => {
+        try {
+          const response = await fetch(api.admin.tagsActive(), { headers: getAuthHeaders() });
+          if (response.ok) {
+            const tagsData = await response.json();
+            setAvailableTags(Array.isArray(tagsData) ? tagsData : []);
+          }
+        } catch (error) {
+          console.error('Error fetching tags:', error);
+          // Fallback to default tags
+          setAvailableTags([
+            { name: 'Dev', color: '#10B981' },
+            { name: 'Bug', color: '#EF4444' },
+            { name: 'Call', color: '#8B5CF6' },
+            { name: 'Meeting', color: '#F59E0B' }
+          ]);
+        }
+      };
+
+      loadData();
+      loadTags();
+    }
+  }, [user]); // Only depend on user
+
+  // Computed values with useMemo to prevent unnecessary recalculations
+  const openEntries = useMemo(() => useEntriesStore.getState().getOpenEntries(), [entries]);
+  const myInvoices = useMemo(() => useInvoicesStore.getState().getInvoicesByUser(user?.id), [invoices, user?.id]);
+  const pendingInvoices = useMemo(() => useInvoicesStore.getState().getPendingInvoices(user?.id), [invoices, user?.id]);
+  const approvedInvoices = useMemo(() => useInvoicesStore.getState().getApprovedInvoices(user?.id), [invoices, user?.id]);
 
   // Login screen
   if (!user) {
@@ -229,27 +252,9 @@ export default function AppRefactored() {
         <div className="flex justify-between items-center mb-6">
           <div>
             <h1 className="text-2xl font-bold">Welcome, {user.name}</h1>
-            <p className="text-gray-600">Rate: {fmt.format(user.rate)}/hr</p>
+            {!isAdmin && <p className="text-gray-600">Rate: {fmt.format(user.rate)}/hr</p>}
           </div>
           <div className="flex items-center space-x-3">
-            {isAdmin && (
-              <button 
-                onClick={() => setShowAnalytics(true)}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
-              >
-                <BarChart3 className="w-4 h-4" />
-                <span>Analytics</span>
-              </button>
-            )}
-            {isAdmin && (
-              <button 
-                onClick={() => setShowAdminPanel(true)}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center space-x-2"
-              >
-                <Settings className="w-4 h-4" />
-                <span>Admin</span>
-              </button>
-            )}
             <button 
               onClick={logout} 
               className="bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-800"
@@ -267,6 +272,7 @@ export default function AppRefactored() {
           <AdminDashboard
             onShowAnalytics={() => setShowAnalytics(true)}
             onShowAdminPanel={() => setShowAdminPanel(true)}
+            onViewInvoice={setViewInvoice}
           />
         ) : (
           <UserDashboard
@@ -279,9 +285,9 @@ export default function AppRefactored() {
             onUpdateEntry={handleUpdateEntry}
             onDeleteEntry={handleDeleteEntry}
             onSubmitInvoice={handleSubmitInvoice}
-            onEditEntry={entriesStore.setEditingEntry}
-            editingEntry={entriesStore.editingEntry}
-            loading={entriesStore.loading}
+            onEditEntry={useEntriesStore.getState().setEditingEntry}
+            editingEntry={editingEntry}
+            loading={entriesLoading}
           />
         )}
 
@@ -330,7 +336,7 @@ export default function AppRefactored() {
       {viewInvoice && (
         <InvoiceModal 
           invoice={viewInvoice} 
-          entries={entriesStore.entries} 
+          entries={entries} 
           onClose={() => setViewInvoice(null)} 
         />
       )}
@@ -339,7 +345,8 @@ export default function AppRefactored() {
         <BatchTimeEntry
           onClose={() => setShowBatchEntry(false)}
           onSuccess={async (result) => {
-            await fetchData();
+            // Refresh entries after batch import
+            await fetchEntries('open');
             toast.success(`Successfully imported ${result.created} entries`);
           }}
         />
@@ -348,7 +355,6 @@ export default function AppRefactored() {
       {showAdminPanel && (
         <AdminPanel 
           onClose={() => setShowAdminPanel(false)}
-          onTagsUpdated={fetchTags}
         />
       )}
       

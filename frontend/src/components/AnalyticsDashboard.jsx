@@ -14,7 +14,7 @@ import {
   GripVertical
 } from 'lucide-react';
 import { api, getAuthHeaders } from '../config';
-import { toast } from 'react-toastify';
+import { useToast } from './Toast/ToastProvider';
 import { LoadingSpinner } from './Loading';
 import { formatDate } from '../utils/date';
 
@@ -43,6 +43,8 @@ export const AnalyticsDashboard = React.memo(function AnalyticsDashboard() {
     teamPerformance: []
   });
   const [loading, setLoading] = useState(true);
+
+  const toast = useToast();
 
   useEffect(() => {
     fetchAnalytics();
