@@ -1,0 +1,119 @@
+# Development override for docker-compose
+# Use: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+version: '3.8'
+
+services:
+  # Development database with exposed ports and development settings
+  database:
+    environment:
+      MYSQL_ROOT_PASSWORD: dev_root_password
+      MYSQL_DATABASE: invoiceapp_dev
+      MYSQL_USER: dev_user
+      MYSQL_PASSWORD: dev_password
+    ports:
+      - "3306:3306"  # Expose for local development tools
+    volumes:
+      # Mount development init scripts
+      - ./backend/mysql-init:/docker-entrypoint-initdb.d:ro
+
+  # Development API with hot reloading
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: development
+    environment:
+      NODE_ENV: development
+      
+      # Development database
+      DB_NAME: invoiceapp_dev
+      DB_USER: dev_user
+      DB_PASSWORD: dev_password
+      
+      # Development security (less strict)
+      JWT_SECRET: dev_jwt_secret_key_minimum_32_characters_long
+      REFRESH_TOKEN_SECRET: dev_refresh_token_secret_key_minimum_32_characters
+      SESSION_SECRET: dev_session_secret_key_minimum_32_characters
+      
+      # Development CORS (allow all origins)
+      ALLOWED_ORIGINS: "*"
+      
+      # Development settings
+      LOG_LEVEL: debug
+      BCRYPT_ROUNDS: 4  # Faster for development
+      
+      # Skip certain checks in development
+      SKIP_DB_WAIT: false
+      SKIP_MIGRATIONS: false
+      RUN_SEEDS: true  # Always seed in development
+      
+    volumes:
+      # Mount source code for hot reloading
+      - ./backend:/app/backend:ro
+      - ./frontend/dist:/app/frontend/dist:ro
+      # Exclude node_modules
+      - /app/backend/node_modules
+      - dev_logs:/app/backend/logs
+    ports:
+      - "3001:3001"
+      - "9229:9229"  # Node.js debugging port
+    command: ["npm", "run", "dev"]
+
+  # Development Nginx with debugging
+  nginx:
+    volumes:
+      - ./docker/nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/default.dev.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./frontend/dist:/usr/share/nginx/html:ro
+    ports:
+      - "8080:80"  # Different port for development
+
+  # Additional development services
+  
+  # Mailhog for email testing
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: invoice-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"  # SMTP port
+      - "8025:8025"  # Web UI port
+    networks:
+      - invoice-network
+
+  # Redis Commander for Redis debugging
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: invoice-redis-commander
+    restart: unless-stopped
+    depends_on:
+      - redis
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    ports:
+      - "8081:8081"
+    networks:
+      - invoice-network
+
+  # phpMyAdmin for database management
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    container_name: invoice-phpmyadmin
+    restart: unless-stopped
+    depends_on:
+      - database
+    environment:
+      PMA_HOST: database
+      PMA_PORT: 3306
+      PMA_USER: root
+      PMA_PASSWORD: dev_root_password
+      MYSQL_ROOT_PASSWORD: dev_root_password
+    ports:
+      - "8082:80"
+    networks:
+      - invoice-network
+
+volumes:
+  dev_logs:
+    driver: local

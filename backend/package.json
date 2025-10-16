@@ -8,7 +8,12 @@
     "dev": "nodemon server.js",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "test:integration": "jest --testMatch='**/tests/**/*.integration.test.js'",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "jest": {
     "testEnvironment": "node",
@@ -46,9 +51,11 @@
     "jsonwebtoken": "^9.0.2",
     "jspdf": "^3.0.3",
     "jspdf-autotable": "^5.0.2",
+    "knex": "^3.1.0",
     "luxon": "^3.7.2",
     "mysql2": "^3.15.2",
     "nodemailer": "^7.0.7",
+    "objection": "^3.1.5",
     "puppeteer": "^24.23.0",
     "react-toastify": "^11.0.5",
     "sqlite3": "^5.1.7",
@@ -57,8 +64,11 @@
     "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "eslint": "^8.57.0",
+    "eslint-config-node": "^4.1.0",
     "jest": "^30.2.0",
     "nodemon": "^2.0.22",
+    "prettier": "^3.2.5",
     "supertest": "^7.1.4"
   },
   "keywords": [],

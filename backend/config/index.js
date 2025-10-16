@@ -25,6 +25,11 @@ class Config {
     if (process.env.JWT_SECRET.length < 32) {
       throw new Error('JWT_SECRET must be at least 32 characters long for security');
     }
+
+    // Set default refresh token secret if not provided
+    if (!process.env.REFRESH_TOKEN_SECRET) {
+      process.env.REFRESH_TOKEN_SECRET = process.env.JWT_SECRET + '_refresh';
+    }
   }
 
   get port() {
@@ -50,10 +55,22 @@ class Config {
     };
   }
 
+  get auth() {
+    return {
+      jwtSecret: process.env.JWT_SECRET,
+      refreshTokenSecret: process.env.REFRESH_TOKEN_SECRET,
+      accessTokenExpiry: process.env.ACCESS_TOKEN_EXPIRY || '15m', // Short-lived access tokens
+      refreshTokenExpiry: process.env.REFRESH_TOKEN_EXPIRY || '7d', // Longer-lived refresh tokens
+      maxLoginAttempts: parseInt(process.env.MAX_LOGIN_ATTEMPTS) || 5,
+      lockoutDuration: parseInt(process.env.LOCKOUT_DURATION) || 900000, // 15 minutes
+      bcryptRounds: parseInt(process.env.BCRYPT_ROUNDS) || 12
+    };
+  }
+
   get jwt() {
     return {
       secret: process.env.JWT_SECRET,
-      expiresIn: process.env.JWT_EXPIRES_IN || '24h'
+      expiresIn: process.env.JWT_EXPIRES_IN || '15m' // Updated to match access token expiry
     };
   }
 

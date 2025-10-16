@@ -1,0 +1,165 @@
+# Docker Compose for Invoice App
+# Supports both development and production environments
+
+version: '3.8'
+
+services:
+  # Database service
+  database:
+    image: mysql:8.0
+    container_name: invoice-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-invoiceapp_root_2024}
+      MYSQL_DATABASE: ${DB_NAME:-invoiceapp}
+      MYSQL_USER: ${DB_USER:-invoiceapp}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-invoiceapp_secure_2024}
+      MYSQL_CHARACTER_SET_SERVER: utf8mb4
+      MYSQL_COLLATION_SERVER: utf8mb4_unicode_ci
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backend/mysql-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+    networks:
+      - invoice-network
+
+  # Redis for caching and session storage
+  redis:
+    image: redis:7-alpine
+    container_name: invoice-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      timeout: 5s
+      retries: 5
+    networks:
+      - invoice-network
+
+  # Backend API service
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: invoice-api
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      
+      # Database configuration
+      DB_TYPE: mysql
+      DB_HOST: database
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-invoiceapp}
+      DB_USER: ${DB_USER:-invoiceapp}
+      DB_PASSWORD: ${DB_PASSWORD:-invoiceapp_secure_2024}
+      
+      # Redis configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      
+      # Security
+      JWT_SECRET: ${JWT_SECRET}
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
+      SESSION_SECRET: ${SESSION_SECRET}
+      
+      # CORS origins
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:80,http://localhost:8080}
+      
+      # Email configuration (optional)
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      EMAIL_FROM: ${EMAIL_FROM:-noreply@invoiceapp.com}
+      
+      # Application settings
+      MAX_LOGIN_ATTEMPTS: ${MAX_LOGIN_ATTEMPTS:-5}
+      LOCKOUT_DURATION: ${LOCKOUT_DURATION:-900000}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+      
+      # Rate limiting
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-900000}
+      RATE_LIMIT_MAX_REQUESTS: ${RATE_LIMIT_MAX_REQUESTS:-100}
+      
+      # Feature flags
+      ENABLE_ANALYTICS: ${ENABLE_ANALYTICS:-true}
+      ENABLE_BATCH_IMPORT: ${ENABLE_BATCH_IMPORT:-true}
+      
+      # Deployment flags
+      SKIP_DB_WAIT: ${SKIP_DB_WAIT:-false}
+      SKIP_MIGRATIONS: ${SKIP_MIGRATIONS:-false}
+      RUN_SEEDS: ${RUN_SEEDS:-false}
+      
+    ports:
+      - "${API_PORT:-3001}:3001"
+    volumes:
+      - api_logs:/app/backend/logs
+      - api_uploads:/app/backend/uploads
+    healthcheck:
+      test: ["CMD", "node", "/app/backend/healthcheck.js"]
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - invoice-network
+
+  # Nginx reverse proxy and static file server
+  nginx:
+    image: nginx:alpine
+    container_name: invoice-nginx
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./frontend/dist:/usr/share/nginx/html:ro
+      - nginx_logs:/var/log/nginx
+      # SSL certificates (if using HTTPS)
+      - ./docker/ssl:/etc/nginx/ssl:ro
+    environment:
+      - API_HOST=api
+      - API_PORT=3001
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      timeout: 5s
+      retries: 3
+    networks:
+      - invoice-network
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+  api_logs:
+    driver: local
+  api_uploads:
+    driver: local
+  nginx_logs:
+    driver: local
+
+networks:
+  invoice-network:
+    driver: bridge

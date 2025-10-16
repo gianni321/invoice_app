@@ -4,30 +4,24 @@ const cors = require('cors');
 const helmet = require('helmet');
 const config = require('./config');
 const { generalLimiter, authLimiter, adminLimiter } = require('./middleware/rateLimiting');
+const requestLogging = require('./middleware/requestLogging');
 const authRoutes = require('./routes/auth');
 const entryRoutes = require('./routes/entries');
 const invoiceRoutes = require('./routes/invoices');
 const adminRoutes = require('./routes/admin');
 const analyticsRoutes = require('./routes/analytics');
-const logger = require('./lib/logger');
+const secureLogger = require('./lib/secureLogger');
 const SecurityConfig = require('./lib/security');
 const { HealthMonitor, requestLogger, errorTracker, performanceMonitor } = require('./lib/monitoring');
-const { 
-  requestId, 
-  requestLogging, 
-  performanceMonitoring, 
-  errorLogging, 
-  notFoundHandler 
-} = require('./middleware/logging');
 
 // Validate security configuration
 SecurityConfig.validateEnvironment();
 
 // Validate configuration on startup
 try {
-  logger.info('Configuration validated successfully');
+  secureLogger.info('Configuration validated successfully');
 } catch (error) {
-  logger.error('Configuration validation failed:', error.message);
+  secureLogger.error('Configuration validation failed:', { error: error.message });
   process.exit(1);
 }
 
@@ -35,7 +29,7 @@ const app = express();
 const PORT = config.port;
 
 // Log environment info
-logger.info('Starting server', {
+secureLogger.info('Starting server', {
   port: PORT,
   nodeEnv: config.nodeEnv,
   corsOrigins: config.cors.origins.length
@@ -53,7 +47,7 @@ app.use(cors({
     if (config.cors.origins.includes(origin)) {
       return callback(null, true);
     } else {
-      logger.warn('CORS rejected origin:', origin);
+      secureLogger.logSecurity('warn', 'CORS rejected origin', { origin, ip: req?.ip });
       return callback(new Error('Not allowed by CORS'));
     }
   },
@@ -70,10 +64,8 @@ app.use('/api/admin', adminLimiter); // Strictest rate limiting for admin operat
 // Middleware
 app.use(express.json());
 
-// Request ID and logging middleware
-app.use(requestId);
+// Request logging with correlation IDs
 app.use(requestLogging);
-app.use(performanceMonitoring);
 
 // Additional monitoring middleware
 app.use(performanceMonitor);
@@ -93,26 +85,41 @@ app.use('/api/analytics', analyticsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
-  logger.info('Health check requested', { requestId: req.requestId });
+  secureLogger.info('Health check requested', { correlationId: req.correlationId });
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
 // Replace the previous route handlers
 app.use('*', notFoundHandler);
 
-// Error handling
-app.use(errorLogging);
-app.use(errorTracker);
+// Error handling middleware
+app.use((err, req, res, next) => {
+  secureLogger.logError(err, {
+    url: req.url,
+    method: req.method,
+    userId: req.user?.id,
+    correlationId: req.correlationId,
+    userAgent: req.get('User-Agent'),
+    ip: req.ip
+  });
+  
+  res.status(err.status || 500).json({
+    error: process.env.NODE_ENV === 'production' 
+      ? 'Internal server error' 
+      : err.message,
+    correlationId: req.correlationId
+  });
+});
 
 // Initialize health monitoring
 const Database = require('./database');
 const healthMonitor = new HealthMonitor(app, Database.db);
 
 const server = app.listen(PORT, '0.0.0.0', () => {
-  logger.info(`🚀 Server running on http://localhost:${PORT}`);
-  logger.info(`📊 API available at http://localhost:${PORT}/api`);
-  logger.info(`🏥 Health checks available at http://localhost:${PORT}/health`);
-  logger.info('Server startup completed successfully');
+  secureLogger.info(`🚀 Server running on http://localhost:${PORT}`);
+  secureLogger.info(`📊 API available at http://localhost:${PORT}/api`);
+  secureLogger.info(`🏥 Health checks available at http://localhost:${PORT}/health`);
+  secureLogger.info('Server startup completed successfully');
 });
 
 // Set server timeout
@@ -130,11 +137,11 @@ server.on('error', (error) => {
 
   switch (error.code) {
     case 'EACCES':
-      logger.error(bind + ' requires elevated privileges');
+      secureLogger.error(bind + ' requires elevated privileges');
       process.exit(1);
       break;
     case 'EADDRINUSE':
-      logger.error(bind + ' is already in use');
+      secureLogger.error(bind + ' is already in use');
       process.exit(1);
       break;
     default:
@@ -144,19 +151,19 @@ server.on('error', (error) => {
 
 // Handle graceful shutdown
 const gracefulShutdown = (signal) => {
-  logger.info(`${signal} signal received. Starting graceful shutdown...`);
+  secureLogger.info(`${signal} signal received. Starting graceful shutdown...`);
   server.close((err) => {
     if (err) {
-      logger.error('Error during server shutdown:', err);
+      secureLogger.error('Error during server shutdown:', { error: err.message });
       process.exit(1);
     }
-    logger.info('Server closed successfully');
+    secureLogger.info('Server closed successfully');
     process.exit(0);
   });
   
   // Force shutdown after 10 seconds
   setTimeout(() => {
-    logger.error('Could not close connections in time, forcefully shutting down');
+    secureLogger.error('Could not close connections in time, forcefully shutting down');
     process.exit(1);
   }, 10000);
 };
@@ -167,11 +174,11 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Handle uncaught errors with restart capability
 process.on('uncaughtException', (error) => {
-  logger.error('Uncaught Exception:', { error: error.message, stack: error.stack });
+  secureLogger.logError(error, { category: 'uncaught-exception' });
   gracefulShutdown('UNCAUGHT_EXCEPTION');
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  secureLogger.error('Unhandled Rejection', { reason, promise, category: 'unhandled-rejection' });
   gracefulShutdown('UNHANDLED_REJECTION');
 });

@@ -346,7 +346,7 @@ export default function AppRefactored() {
           onClose={() => setShowBatchEntry(false)}
           onSuccess={async (result) => {
             // Refresh entries after batch import
-            await fetchEntries('open');
+            await useEntriesStore.getState().fetchEntries('open');
             toast.success(`Successfully imported ${result.created} entries`);
           }}
         />
